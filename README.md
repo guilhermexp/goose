@@ -19,7 +19,7 @@ _a local, extensible, open source AI agent that automates engineering tasks_
 
 ## 🎉 Hacktoberfest 2025 🎉
 
-`goose` is a participating project in Hacktoberfest 2025! We’re so excited for your contributions, and have created a wide variety of issues so that anyone can contribute. Whether you're a seasoned developer or a first-time open source contributor, there's something for everyone.
+`goose` is a participating project in Hacktoberfest 2025! We're so excited for your contributions, and have created a wide variety of issues so that anyone can contribute. Whether you're a seasoned developer or a first-time open source contributor, there's something for everyone.
 
 ### To get started:
 1. Read the [contributing guide](https://github.com/block/goose/blob/main/CONTRIBUTING.md).
