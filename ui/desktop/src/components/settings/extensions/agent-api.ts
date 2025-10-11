@@ -39,7 +39,7 @@ export async function extensionApiCall(
   if (isActivating && typeof payload === 'object' && payload.type === 'stdio') {
     toastId = toastService.loading({
       title: extensionName,
-      msg: `${action.verb} ${extensionName} extension...`,
+      msg: `${action.verb} ${extensionName}...`,
     });
   }
 
@@ -84,7 +84,7 @@ export async function extensionApiCall(
     toastService.dismiss(toastId);
     toastService.success({
       title: extensionName,
-      msg: `Successfully ${action.pastTense} extension`,
+      msg: `Successfully ${action.pastTense}`,
     });
     return response;
   } catch (error) {
@@ -92,7 +92,7 @@ export async function extensionApiCall(
     toastService.dismiss(toastId);
     const errorMessage = error instanceof Error ? error.message : String(error);
     const msg =
-      errorMessage.length < 70 ? errorMessage : `Failed to ${action.presentTense} extension`;
+      errorMessage.length < 70 ? errorMessage : `Failed to ${action.presentTense}`;
     toastService.error({
       title: extensionName,
       msg: msg,
@@ -120,14 +120,14 @@ function handleErrorResponse(
     toastService.dismiss(toastId);
     toastService.error({
       title: extensionName,
-      msg: 'Failed to add extension. Goose Agent was still starting up. Please try again.',
+      msg: 'Failed to add. Goose Agent was still starting up. Please try again.',
       traceback: errorMsg,
     });
     throw new Error('Agent is not initialized. Please initialize the agent first.');
   }
 
   // General error case
-  const msg = `Failed to ${action.type === 'activating' ? 'add' : action.type === 'removing' ? 'remove' : 'deactivate'} ${extensionName} extension: ${errorMsg}`;
+  const msg = `Failed to ${action.type === 'activating' ? 'add' : action.type === 'removing' ? 'remove' : 'deactivate'} ${extensionName}: ${errorMsg}`;
   toastService.dismiss(toastId);
   toastService.error({
     title: extensionName,
@@ -168,9 +168,9 @@ export async function addToAgent(
     // Check if this is a 428 error and make the message more descriptive
     if (error instanceof Error && error.message && error.message.includes('428')) {
       const enhancedError = new Error(
-        'Failed to add extension. Goose Agent was still starting up. Please try again.'
+        'Failed to add. Goose Agent was still starting up. Please try again.'
       );
-      console.error(`Failed to add extension ${extension.name} to agent: ${enhancedError.message}`);
+      console.error(`Failed to add ${extension.name} to agent: ${enhancedError.message}`);
       throw enhancedError;
     }
     throw error;

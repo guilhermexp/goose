@@ -115,6 +115,7 @@ function BaseChatContent({
   const disableAnimation = location.state?.disableAnimation || false;
   const [hasStartedUsingRecipe, setHasStartedUsingRecipe] = React.useState(false);
   const [currentRecipeTitle, setCurrentRecipeTitle] = React.useState<string | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = React.useState(false);
   const { isCompacting, handleManualCompaction } = useContextManager();
 
   // Use shared chat engine
@@ -309,12 +310,15 @@ function BaseChatContent({
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             data-drop-zone="true"
-            paddingX={6}
+            paddingX={3}
             paddingY={0}
+            onScrollChange={(isAtBottom) => {
+              setShowScrollToBottom(!isAtBottom && messages.length > 0);
+            }}
           >
             {/* Recipe agent header - sticky at top of chat container */}
             {recipe?.title && (
-              <div className="sticky top-0 z-10 bg-background-default px-0 -mx-6 mb-6 pt-6">
+              <div className="sticky top-0 z-10 bg-background-default px-0 -mx-3 mb-6 pt-6">
                 <AgentHeader
                   title={recipe.title}
                   profileInfo={
@@ -454,6 +458,30 @@ function BaseChatContent({
                 chatState={chatState}
               />
             </div>
+          )}
+
+          {/* Scroll to bottom button */}
+          {showScrollToBottom && (
+            <button
+              onClick={() => scrollRef.current?.scrollToBottom()}
+              className="absolute bottom-4 right-6 z-30 p-1.5 rounded-full border border-borderSubtle/30 hover:border-borderSubtle/60 hover:bg-background-muted/50 backdrop-blur-sm transition-all duration-200 group animate-[appear_200ms_ease-out]"
+              aria-label="Scroll to latest message"
+              title="Go to latest message"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-textSubtle group-hover:text-textPrimary group-hover:translate-y-0.5 transition-all"
+              >
+                <path d="M12 5v14M19 12l-7 7-7-7" />
+              </svg>
+            </button>
           )}
         </div>
 

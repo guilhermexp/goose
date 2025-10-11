@@ -494,17 +494,21 @@ export function AppInner() {
       <ToastContainer
         aria-label="Toast notifications"
         toastClassName={() =>
-          `relative min-h-16 mb-4 p-2 rounded-lg
-               flex justify-between overflow-hidden cursor-pointer
-               text-text-on-accent bg-background-inverse
-              `
+          `relative flex justify-between overflow-hidden cursor-pointer`
         }
-        style={{ width: '380px' }}
+        style={{
+          width: '200px',
+          top: '16px',
+          right: '16px'
+        }}
         className="mt-6"
         position="top-right"
-        autoClose={3000}
+        autoClose={2000}
         closeOnClick
-        pauseOnHover
+        pauseOnHover={false}
+        newestOnTop={true}
+        limit={3}
+        stacked={false}
       />
       <ExtensionInstallModal addExtension={addExtension} setView={setView} />
       <div className="relative w-screen h-screen overflow-hidden bg-background-muted flex flex-col">

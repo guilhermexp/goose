@@ -102,13 +102,13 @@ export default function ExtensionsView({
 
   return (
     <MainPanelLayout>
-      <div className="flex flex-col min-w-0 flex-1 overflow-y-auto relative">
-        <div className="bg-background-default px-8 pb-4 pt-16">
+      <div className="flex flex-col min-w-0 flex-1 overflow-y-auto relative bg-black">
+        <div className="bg-black px-8 pb-4 pt-16">
           <div className="flex flex-col page-transition">
             <div className="flex justify-between items-center mb-1">
-              <h1 className="text-4xl font-light">Extensions</h1>
+              <h1 className="text-4xl font-light text-white">Extensions</h1>
             </div>
-            <p className="text-sm text-text-muted mb-6">
+            <p className="text-sm text-white/70 mb-6">
               These extensions use the Model Context Protocol (MCP). They can expand Goose's
               capabilities using three main components: Prompts, Resources, and Tools.
             </p>

@@ -23,15 +23,15 @@ export function ToolCallArguments({ args }: ToolCallArgumentsProps) {
 
   const renderValue = (key: string, value: ToolCallArgumentValue) => {
     if (typeof value === 'string') {
-      const needsExpansion = value.length > 60;
+      const needsExpansion = value.length > 80;
       const isExpanded = expandedKeys[key];
 
       if (!needsExpansion) {
         return (
-          <div className="font-sans text-sm mb-2">
-            <div className="flex flex-row">
-              <span className="text-textSubtle min-w-[140px]">{key}</span>
-              <span className="text-textPlaceholder">{value}</span>
+          <div className="font-sans text-sm mb-1">
+            <div className="flex flex-row items-baseline gap-2">
+              <span className="text-textSubtle">{key}:</span>
+              <span className="text-textPlaceholder break-all">{value}</span>
             </div>
           </div>
         );
@@ -83,10 +83,10 @@ export function ToolCallArguments({ args }: ToolCallArgumentsProps) {
         : String(value);
 
     return (
-      <div className="mb-2">
-        <div className="flex flex-row font-sans text-sm">
-          <span className="text-textSubtle min-w-[140px]">{key}</span>
-          <pre className="whitespace-pre-wrap text-textPlaceholder overflow-x-auto max-w-full">
+      <div className="mb-1">
+        <div className="flex flex-row items-baseline gap-2 font-sans text-sm">
+          <span className="text-textSubtle shrink-0">{key}:</span>
+          <pre className="whitespace-pre-wrap text-textPlaceholder overflow-x-auto max-w-full break-all">
             {content}
           </pre>
         </div>

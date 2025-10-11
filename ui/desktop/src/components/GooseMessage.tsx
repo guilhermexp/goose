@@ -197,7 +197,7 @@ export default function GooseMessage({
   const isFirstInChain = messageChain && messageChain[0] === messageIndex;
 
   return (
-    <div className="goose-message flex w-[90%] justify-start min-w-0">
+    <div className="goose-message flex w-[98%] justify-start min-w-0">
       <div className="flex flex-col w-full min-w-0">
         {cotText && (
           <details className="bg-bgSubtle border border-borderSubtle rounded p-2 mb-2">

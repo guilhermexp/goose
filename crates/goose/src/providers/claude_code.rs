@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_stream::try_stream;
 use async_trait::async_trait;
 use rmcp::model::Role;
 use serde_json::{json, Value};
@@ -7,7 +8,7 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use super::base::{ConfigKey, Provider, ProviderMetadata, ProviderUsage, Usage};
+use super::base::{ConfigKey, MessageStream, Provider, ProviderMetadata, ProviderUsage, Usage};
 use super::errors::ProviderError;
 use super::utils::emit_debug_trace;
 use crate::config::Config;
@@ -15,8 +16,8 @@ use crate::conversation::message::{Message, MessageContent};
 use crate::model::ModelConfig;
 use rmcp::model::Tool;
 
-pub const CLAUDE_CODE_DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
-pub const CLAUDE_CODE_KNOWN_MODELS: &[&str] = &["sonnet", "opus", "claude-sonnet-4-20250514"];
+pub const CLAUDE_CODE_DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250929";
+pub const CLAUDE_CODE_KNOWN_MODELS: &[&str] = &["sonnet", "opus", "claude-sonnet-4-5-20250929"];
 
 pub const CLAUDE_CODE_DOC_URL: &str = "https://claude.ai/cli";
 
@@ -442,6 +443,98 @@ impl ClaudeCodeProvider {
             ProviderUsage::new(self.model.model_name.clone(), usage),
         ))
     }
+
+    /// Execute command with streaming support
+    async fn execute_command_streaming(
+        &self,
+        system: &str,
+        messages: &[Message],
+        _tools: &[Tool],
+    ) -> Result<tokio::process::Child, ProviderError> {
+        let messages_json = self
+            .messages_to_claude_format(system, messages)
+            .map_err(|e| {
+                ProviderError::RequestFailed(format!("Failed to format messages: {}", e))
+            })?;
+
+        let filtered_system = self.filter_extensions_from_system_prompt(system);
+
+        let mut cmd = Command::new(&self.command);
+        cmd.arg("-p")
+            .arg(messages_json.to_string())
+            .arg("--system-prompt")
+            .arg(&filtered_system);
+
+        if CLAUDE_CODE_KNOWN_MODELS.contains(&self.model.model_name.as_str()) {
+            cmd.arg("--model").arg(&self.model.model_name);
+        }
+
+        // Use stream-json format for streaming
+        cmd.arg("--verbose")
+            .arg("--output-format")
+            .arg("stream-json")
+            .arg("--include-partial-messages");
+
+        let config = Config::global();
+        if let Ok(goose_mode) = config.get_param::<String>("GOOSE_MODE") {
+            if goose_mode.as_str() == "auto" {
+                cmd.arg("--permission-mode").arg("acceptEdits");
+            }
+        }
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        cmd.spawn().map_err(|e| {
+            ProviderError::RequestFailed(format!(
+                "Failed to spawn Claude CLI command '{}': {}. \
+                Make sure the Claude Code CLI is installed and in your PATH, or set CLAUDE_CODE_COMMAND in your config to the correct path.",
+                self.command, e
+            ))
+        })
+    }
+
+}
+
+/// Parse a single line from stream-json output (static function)
+/// Only processes DELTA events, not complete messages
+fn parse_streaming_line(line: &str) -> Result<Option<String>, ProviderError> {
+    let parsed: Value = serde_json::from_str(line).map_err(|e| {
+        ProviderError::RequestFailed(format!("Failed to parse JSON line: {}", e))
+    })?;
+
+    // Only look for DELTA events, not complete messages
+    if let Some(msg_type) = parsed.get("type").and_then(|t| t.as_str()) {
+        match msg_type {
+            "stream_event" => {
+                // New format: {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
+                if let Some(event) = parsed.get("event") {
+                    if let Some(event_type) = event.get("type").and_then(|t| t.as_str()) {
+                        if event_type == "content_block_delta" {
+                            if let Some(delta) = event.get("delta") {
+                                if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                                    return Ok(Some(text.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "content_block_delta" => {
+                // Old format (if still used): {"type":"content_block_delta","delta":{"text":"..."}}
+                if let Some(delta) = parsed.get("delta") {
+                    if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                        return Ok(Some(text.to_string()));
+                    }
+                }
+            }
+            // NOTE: We intentionally do NOT process "assistant" events here
+            // because they contain the COMPLETE accumulated message, not deltas.
+            // Processing them would cause duplication.
+            _ => {}
+        }
+    }
+
+    Ok(None)
 }
 
 #[async_trait]
@@ -507,6 +600,111 @@ impl Provider for ClaudeCodeProvider {
             message,
             ProviderUsage::new(model_config.model_name.clone(), usage),
         ))
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+
+    async fn stream(
+        &self,
+        system: &str,
+        messages: &[Message],
+        tools: &[Tool],
+    ) -> Result<MessageStream, ProviderError> {
+        tracing::info!("Claude Code provider: stream() method called with model: {}", self.model.model_name);
+
+        // Check if this is a session description request - don't stream those
+        if system.contains("four words or less") || system.contains("4 words or less") {
+            let (message, usage) = self.generate_simple_session_description(messages)?;
+            return Ok(super::base::stream_from_single_message(message, usage));
+        }
+
+        tracing::info!("Claude Code provider: starting streaming command execution");
+        let mut child = self.execute_command_streaming(system, messages, tools).await?;
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ProviderError::RequestFailed("Failed to capture stdout".to_string()))?;
+
+        let model_name = self.model.model_name.clone();
+
+        Ok(Box::pin(try_stream! {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            let mut line_count = 0;
+            let mut has_sent_content = false;
+
+            // Generate a unique message ID for this streaming session
+            let streaming_message_id = format!("stream-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+
+            tracing::info!("Claude Code: Starting to read streaming output with ID: {}", streaming_message_id);
+
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => {
+                        tracing::info!("Claude Code: Reached EOF after {} lines", line_count);
+                        break;
+                    }
+                    Ok(bytes_read) => {
+                        line_count += 1;
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+
+                        tracing::debug!("Claude Code: Line {}: {} bytes", line_count, bytes_read);
+
+                        // Try to parse the streaming line
+                        if let Ok(Some(text)) = parse_streaming_line(trimmed) {
+                            // Claude CLI sends DELTAS in content_block_delta events
+                            // Just forward them directly to the frontend
+                            let preview = text.chars().take(50).collect::<String>();
+                            tracing::info!("Claude Code: Sending text chunk ({} chars): {}", text.len(), preview);
+
+                            let mut message = Message::new(
+                                Role::Assistant,
+                                chrono::Utc::now().timestamp(),
+                                vec![MessageContent::text(text)],
+                            );
+                            message.id = Some(streaming_message_id.clone());
+
+                            has_sent_content = true;
+                            yield (Some(message), None);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Claude Code: Error reading line: {}", e);
+                        Err(ProviderError::RequestFailed(format!(
+                            "Failed to read output: {}",
+                            e
+                        )))?;
+                    }
+                }
+            }
+
+            // Wait for process to complete
+            let _exit_status = child.wait().await.map_err(|e| {
+                ProviderError::RequestFailed(format!("Failed to wait for command: {}", e))
+            })?;
+
+            // Send final message with usage info
+            if has_sent_content {
+                let mut final_message = Message::new(
+                    Role::Assistant,
+                    chrono::Utc::now().timestamp(),
+                    vec![],  // Empty content, just usage
+                );
+                final_message.id = Some(streaming_message_id);
+
+                let usage = Usage::default();
+                let provider_usage = ProviderUsage::new(model_name, usage);
+
+                yield (Some(final_message), Some(provider_usage));
+            }
+        }))
     }
 }
 

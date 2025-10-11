@@ -1332,7 +1332,7 @@ export default function ChatInput({
                         variant="outline"
                         onClick={() => {}}
                         disabled={true}
-                        className="bg-slate-600 text-white cursor-not-allowed opacity-50 border-slate-600 rounded-full px-6 py-2"
+                        className="bg-neutral-800 text-white cursor-not-allowed opacity-50 border-neutral-800 rounded-full px-6 py-2"
                       >
                         <Microphone />
                       </Button>
@@ -1378,8 +1378,8 @@ export default function ChatInput({
                     isRecording
                       ? 'bg-red-500 text-white hover:bg-red-600 border-red-500'
                       : isTranscribing
-                        ? 'bg-slate-600 text-white cursor-not-allowed animate-pulse border-slate-600'
-                        : 'bg-slate-600 text-white hover:bg-slate-700 border-slate-600'
+                        ? 'bg-neutral-800 text-white cursor-not-allowed animate-pulse border-neutral-800'
+                        : 'bg-neutral-800 text-white hover:bg-neutral-700 border-neutral-800'
                   }`}
                 >
                   <Microphone />
@@ -1396,7 +1396,7 @@ export default function ChatInput({
               size="sm"
               shape="round"
               variant="outline"
-              className="bg-slate-600 text-white hover:bg-slate-700 border-slate-600 rounded-full px-6 py-2"
+              className="bg-neutral-800 text-white hover:bg-neutral-700 border-neutral-800 rounded-full px-6 py-2"
             >
               <Stop />
             </Button>
@@ -1412,8 +1412,8 @@ export default function ChatInput({
                     disabled={isSubmitButtonDisabled}
                     className={`rounded-full px-10 py-2 flex items-center gap-2 ${
                       isSubmitButtonDisabled
-                        ? 'bg-slate-600 text-white cursor-not-allowed opacity-50 border-slate-600'
-                        : 'bg-slate-600 text-white hover:bg-slate-700 border-slate-600 hover:cursor-pointer'
+                        ? 'bg-neutral-800 text-white cursor-not-allowed opacity-50 border-neutral-800'
+                        : 'bg-neutral-800 text-white hover:bg-neutral-700 border-neutral-800 hover:cursor-pointer'
                     }`}
                   >
                     <Send className="w-4 h-4" />

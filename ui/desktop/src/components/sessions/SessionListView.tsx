@@ -9,6 +9,8 @@ import {
   Trash2,
   Download,
   Upload,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -206,6 +208,9 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
     const [searchTerm, setSearchTerm] = useState('');
     const [caseSensitive, setCaseSensitive] = useState(false);
     const debouncedSearchTerm = useDebounce(searchTerm, 300); // 300ms debounce
+
+    // View mode state (grid or list)
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -488,6 +493,108 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
       [loadSessions]
     );
 
+    // List item component for list view
+    const SessionListItem = React.memo(function SessionListItem({
+      session,
+      onEditClick,
+      onDeleteClick,
+      onExportClick,
+    }: {
+      session: Session;
+      onEditClick: (session: Session) => void;
+      onDeleteClick: (session: Session) => void;
+      onExportClick: (session: Session, e: React.MouseEvent) => void;
+    }) {
+      const handleEditClick = useCallback(
+        (e: React.MouseEvent) => {
+          e.stopPropagation();
+          onEditClick(session);
+        },
+        [onEditClick, session]
+      );
+
+      const handleDeleteClick = useCallback(
+        (e: React.MouseEvent) => {
+          e.stopPropagation();
+          onDeleteClick(session);
+        },
+        [onDeleteClick, session]
+      );
+
+      const handleCardClick = useCallback(() => {
+        onSelectSession(session.id);
+      }, [session.id]);
+
+      const handleExportClick = useCallback(
+        (e: React.MouseEvent) => {
+          onExportClick(session, e);
+        },
+        [onExportClick, session]
+      );
+
+      return (
+        <div
+          onClick={handleCardClick}
+          className="session-item py-3 px-4 border-b border-border-subtle hover:bg-background-muted cursor-pointer transition-all duration-150 flex items-center justify-between group"
+          ref={(el) => setSessionRefs(session.id, el)}
+        >
+          <div className="flex-1 min-w-0 pr-4">
+            <div className="flex items-center gap-4 mb-1">
+              <h3 className="text-base font-medium truncate flex-1">
+                {session.description || session.id}
+              </h3>
+              <div className="flex items-center text-text-muted text-xs font-mono shrink-0">
+                <Calendar className="w-3 h-3 mr-1" />
+                <span>{formatMessageTimestamp(Date.parse(session.updated_at) / 1000)}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-text-muted">
+              <div className="flex items-center truncate flex-1">
+                <Folder className="w-3 h-3 mr-1 shrink-0" />
+                <span className="truncate font-mono">{session.working_dir}</span>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center">
+                  <MessageSquareText className="w-3 h-3 mr-1" />
+                  <span className="font-mono">{session.message_count}</span>
+                </div>
+                {session.total_tokens !== null && (
+                  <div className="flex items-center">
+                    <Target className="w-3 h-3 mr-1" />
+                    <span className="font-mono">{(session.total_tokens || 0).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button
+              onClick={handleEditClick}
+              className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+              title="Edit session name"
+            >
+              <Edit2 className="w-3 h-3 text-textSubtle hover:text-textStandard" />
+            </button>
+            <button
+              onClick={handleDeleteClick}
+              className="p-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              title="Delete session"
+            >
+              <Trash2 className="w-3 h-3 text-red-500 hover:text-red-600" />
+            </button>
+            <button
+              onClick={handleExportClick}
+              className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+              title="Export session"
+            >
+              <Download className="w-3 h-3 text-textSubtle hover:text-textStandard" />
+            </button>
+          </div>
+        </div>
+      );
+    });
+
     const SessionItem = React.memo(function SessionItem({
       session,
       onEditClick,
@@ -668,17 +775,31 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
               <div className="sticky top-0 z-10 bg-background-default/95 backdrop-blur-sm">
                 <h2 className="text-text-muted">{group.label}</h2>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                {group.sessions.map((session) => (
-                  <SessionItem
-                    key={session.id}
-                    session={session}
-                    onEditClick={handleEditSession}
-                    onDeleteClick={handleDeleteSession}
-                    onExportClick={handleExportSession}
-                  />
-                ))}
-              </div>
+              {viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                  {group.sessions.map((session) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      onEditClick={handleEditSession}
+                      onDeleteClick={handleDeleteSession}
+                      onExportClick={handleExportSession}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="border border-border-subtle rounded-lg overflow-hidden">
+                  {group.sessions.map((session) => (
+                    <SessionListItem
+                      key={session.id}
+                      session={session}
+                      onEditClick={handleEditSession}
+                      onDeleteClick={handleDeleteSession}
+                      onExportClick={handleExportSession}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           ))}
 
@@ -702,15 +823,42 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
               <div className="flex flex-col page-transition">
                 <div className="flex justify-between items-center mb-1">
                   <h1 className="text-4xl font-light">Chat history</h1>
-                  <Button
-                    onClick={handleImportClick}
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center gap-2"
-                  >
-                    <Upload className="w-4 h-4" />
-                    Import Session
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {/* View mode toggle */}
+                    <div className="flex items-center border border-border-subtle rounded-md p-1">
+                      <button
+                        onClick={() => setViewMode('grid')}
+                        className={`p-1.5 rounded transition-colors ${
+                          viewMode === 'grid'
+                            ? 'bg-background-accent/10 text-text-accent'
+                            : 'text-text-muted hover:text-text-standard hover:bg-background-muted'
+                        }`}
+                        title="Grid view"
+                      >
+                        <LayoutGrid className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setViewMode('list')}
+                        className={`p-1.5 rounded transition-colors ${
+                          viewMode === 'list'
+                            ? 'bg-background-accent/10 text-text-accent'
+                            : 'text-text-muted hover:text-text-standard hover:bg-background-muted'
+                        }`}
+                        title="List view"
+                      >
+                        <List className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <Button
+                      onClick={handleImportClick}
+                      variant="outline"
+                      size="sm"
+                      className="flex items-center gap-2"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Import Session
+                    </Button>
+                  </div>
                 </div>
                 <p className="text-sm text-text-muted mb-4">
                   View and search your past conversations with Goose.

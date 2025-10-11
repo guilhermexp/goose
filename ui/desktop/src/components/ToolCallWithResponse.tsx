@@ -2,8 +2,7 @@ import { ToolIconWithStatus, ToolCallStatus } from './ToolCallStatusIndicator';
 import { getToolCallIcon } from '../utils/toolIconMapping';
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from './ui/button';
-import { ToolCallArguments, ToolCallArgumentValue } from './ToolCallArguments';
-import MarkdownContent from './MarkdownContent';
+import { ToolCallArgumentValue } from './ToolCallArguments';
 import { Content, ToolRequestMessageContent, ToolResponseMessageContent } from '../types/message';
 import { cn, snakeToTitleCase } from '../utils';
 import { LoadingStatus } from './ui/Dot';
@@ -37,11 +36,7 @@ export default function ToolCallWithResponse({
 
   return (
     <>
-      <div
-        className={cn(
-          'w-full text-sm font-sans rounded-lg overflow-hidden border-borderSubtle border bg-background-muted'
-        )}
-      >
+      <div className={cn('w-full text-sm font-sans overflow-hidden')}>
         <ToolCallView
           {...{
             isCancelledMessage,
@@ -189,16 +184,6 @@ function ToolCallView({
       window.removeEventListener('responseStyleChanged', handleStorageChange);
     };
   }, []);
-
-  const isExpandToolDetails = (() => {
-    switch (responseStyle) {
-      case 'concise':
-        return false;
-      case 'detailed':
-      default:
-        return true;
-    }
-  })();
 
   const isToolDetails = Object.entries(toolCall?.arguments).length > 0;
 
@@ -476,11 +461,7 @@ function ToolCallView({
       }
     >
       {/* Tool Details */}
-      {isToolDetails && (
-        <div className="border-t border-borderSubtle">
-          <ToolDetailsView toolCall={toolCall} isStartExpanded={isExpandToolDetails} />
-        </div>
-      )}
+      {isToolDetails && <ToolDetailsView toolCall={toolCall} />}
 
       {logs && logs.length > 0 && (
         <div className="border-t border-borderSubtle">
@@ -523,21 +504,29 @@ interface ToolDetailsViewProps {
     name: string;
     arguments: Record<string, unknown>;
   };
-  isStartExpanded: boolean;
 }
 
-function ToolDetailsView({ toolCall, isStartExpanded }: ToolDetailsViewProps) {
+function ToolDetailsView({ toolCall }: ToolDetailsViewProps) {
+  // Format arguments as inline text
+  const formatArguments = (args: Record<string, unknown>): string => {
+    const entries = Object.entries(args);
+    if (entries.length === 0) return '';
+
+    return entries
+      .map(([key, value]) => {
+        const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
+        return `${key} - ${valueStr}`;
+      })
+      .join(', ');
+  };
+
+  const argsText = formatArguments(toolCall.arguments);
+
   return (
-    <ToolCallExpandable
-      label={<span className="pl-4 font-sans text-sm">Tool Details</span>}
-      isStartExpanded={isStartExpanded}
-    >
-      <div className="pr-4 pl-8">
-        {toolCall.arguments && (
-          <ToolCallArguments args={toolCall.arguments as Record<string, ToolCallArgumentValue>} />
-        )}
-      </div>
-    </ToolCallExpandable>
+    <div className="pl-4 pr-4 py-2 text-sm font-sans text-text-muted">
+      <span className="opacity-70">Tool Details: </span>
+      <span className="text-text-subtle">{argsText}</span>
+    </div>
   );
 }
 
@@ -547,17 +536,79 @@ interface ToolResultViewProps {
 }
 
 function ToolResultView({ result, isStartExpanded }: ToolResultViewProps) {
+  const MAX_PREVIEW_LINES = 4;
+  const [isFullyExpanded, setIsFullyExpanded] = useState(false);
+
+  // Count lines and determine if content is large
+  const getContentInfo = () => {
+    if (result.type === 'text' && result.text) {
+      const lines = result.text.split('\n');
+      const isLarge = lines.length > MAX_PREVIEW_LINES;
+      const preview = isLarge ? lines.slice(0, MAX_PREVIEW_LINES).join('\n') : result.text;
+      return { isLarge, preview, totalLines: lines.length, content: result.text };
+    }
+    return { isLarge: false, preview: '', totalLines: 0, content: '' };
+  };
+
+  const contentInfo = getContentInfo();
+  const shouldShowToggle = contentInfo.isLarge && result.type === 'text';
+  const displayContent =
+    shouldShowToggle && !isFullyExpanded ? contentInfo.preview : contentInfo.content;
+
   return (
     <ToolCallExpandable
       label={<span className="pl-4 py-1 font-sans text-sm">Output</span>}
       isStartExpanded={isStartExpanded}
     >
-      <div className="pl-4 pr-4 py-4">
+      <div className="pl-4 pr-4 py-2">
         {result.type === 'text' && result.text && (
-          <MarkdownContent
-            content={result.text}
-            className="whitespace-pre-wrap max-w-full overflow-x-auto"
-          />
+          <>
+            <div className="whitespace-pre-wrap max-w-full overflow-x-auto font-sans text-sm">
+              {displayContent.split('\n').map((line, idx) => {
+                // Apply color coding to each line
+                const colorizedLine = line
+                  // Timestamps
+                  .replace(
+                    /(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/g,
+                    '<span class="text-orange-400">$1</span>'
+                  )
+                  // Log levels
+                  .replace(
+                    /\b(INFO|WARN|WARNING|ERROR|DEBUG|TRACE|FATAL)\b/g,
+                    '<span class="text-green-400 font-semibold">$1</span>'
+                  )
+                  // Keywords with underscores
+                  .replace(/\b(\w+_\w+):/g, '<span class="text-yellow-400">$1</span>:')
+                  // File paths
+                  .replace(/(\/[\/\w.@-]+)/g, '<span class="text-blue-400">$1</span>')
+                  // Port numbers
+                  .replace(/\bport\s+(\d+)/gi, 'port <span class="text-cyan-400">$1</span>')
+                  // Status codes
+                  .replace(/\bstatus:\s*(\d+)/gi, 'status: <span class="text-purple-400">$1</span>')
+                  // Rust module paths
+                  .replace(/(\w+::\w+(?:::\w+)*)/g, '<span class="text-cyan-300">$1</span>');
+
+                return (
+                  <div
+                    key={idx}
+                    className="text-text-subtle leading-tight"
+                    dangerouslySetInnerHTML={{ __html: colorizedLine }}
+                  />
+                );
+              })}
+            </div>
+            {shouldShowToggle && (
+              <Button
+                onClick={() => setIsFullyExpanded(!isFullyExpanded)}
+                variant="ghost"
+                className="mt-2 text-xs text-textSubtle hover:text-textPrimary"
+              >
+                {isFullyExpanded
+                  ? `Show less`
+                  : `Show ${contentInfo.totalLines - MAX_PREVIEW_LINES} more lines...`}
+              </Button>
+            )}
+          </>
         )}
         {result.type === 'image' && (
           <img
@@ -588,6 +639,8 @@ function ToolLogsView({
   isStartExpanded?: boolean;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
+  const [isFullyExpanded, setIsFullyExpanded] = useState(false);
+  const MAX_PREVIEW_LOGS = 5;
 
   // Whenever logs update, jump to the newest entry
   useEffect(() => {
@@ -595,12 +648,9 @@ function ToolLogsView({
       boxRef.current.scrollTop = boxRef.current.scrollHeight;
     }
   }, [logs.length]);
-  // normally we do not want to put .length on an array in react deps:
-  //
-  // if the objects inside the array change but length doesn't change you want updates
-  //
-  // in this case, this is array of strings which once added do not change so this cuts
-  // down on the possibility of unwanted runs
+
+  const isLarge = logs.length > MAX_PREVIEW_LOGS;
+  const displayLogs = isLarge && !isFullyExpanded ? logs.slice(0, MAX_PREVIEW_LOGS) : logs;
 
   return (
     <ToolCallExpandable
@@ -621,15 +671,73 @@ function ToolLogsView({
       }
       isStartExpanded={isStartExpanded}
     >
-      <div
-        ref={boxRef}
-        className={`flex flex-col items-start space-y-2 overflow-y-auto p-4 ${working ? 'max-h-[4rem]' : 'max-h-[20rem]'}`}
-      >
-        {logs.map((log, i) => (
-          <span key={i} className="font-sans text-sm text-textSubtle">
-            {log}
-          </span>
-        ))}
+      <div className="p-2">
+        <div
+          ref={boxRef}
+          className={`flex flex-col items-start space-y-0.5 ${!isFullyExpanded && isLarge ? '' : 'overflow-y-auto max-h-[20rem]'}`}
+        >
+          {displayLogs.map((log, i) => {
+            // Parse log to add colors
+            const stdoutMatch = log.match(/^\[stdout\]\s*(.*)$/);
+            const stderrMatch = log.match(/^\[stderr\]\s*(.*)$/);
+
+            if (stdoutMatch) {
+              return (
+                <span key={i} className="font-sans text-sm">
+                  <span className="text-green-500">[stdout]</span>
+                  <span className="text-textSubtle ml-1">{stdoutMatch[1]}</span>
+                </span>
+              );
+            } else if (stderrMatch) {
+              return (
+                <span key={i} className="font-sans text-sm">
+                  <span className="text-orange-500">[stderr]</span>
+                  <span className="text-textSubtle ml-1">{stderrMatch[1]}</span>
+                </span>
+              );
+            } else {
+              // Enhanced colorization for general logs
+              const colorizedLog = log
+                // Timestamps (HH:MM:SS format)
+                .replace(
+                  /(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/g,
+                  '<span class="text-orange-400">$1</span>'
+                )
+                // Log levels (INFO, WARN, ERROR, DEBUG, etc)
+                .replace(
+                  /\b(INFO|WARN|WARNING|ERROR|DEBUG|TRACE|FATAL)\b/g,
+                  '<span class="text-green-400 font-semibold">$1</span>'
+                )
+                // Keywords like quit_reason, peer_info, etc
+                .replace(/\b(\w+_\w+):/g, '<span class="text-yellow-400">$1</span>:')
+                // File paths
+                .replace(/(\/[\/\w.@-]+)/g, '<span class="text-blue-400">$1</span>')
+                // Port numbers
+                .replace(/\bport\s+(\d+)/gi, 'port <span class="text-cyan-400">$1</span>')
+                // Status codes
+                .replace(/\bstatus:\s*(\d+)/gi, 'status: <span class="text-purple-400">$1</span>')
+                // Rust module paths
+                .replace(/(\w+::\w+(?:::\w+)*)/g, '<span class="text-cyan-300">$1</span>');
+
+              return (
+                <span
+                  key={i}
+                  className="font-sans text-sm text-textSubtle"
+                  dangerouslySetInnerHTML={{ __html: colorizedLog }}
+                />
+              );
+            }
+          })}
+        </div>
+        {isLarge && (
+          <Button
+            onClick={() => setIsFullyExpanded(!isFullyExpanded)}
+            variant="ghost"
+            className="mt-2 text-xs text-textSubtle hover:text-textPrimary"
+          >
+            {isFullyExpanded ? `Show less` : `Show ${logs.length - MAX_PREVIEW_LOGS} more lines...`}
+          </Button>
+        )}
       </div>
     </ToolCallExpandable>
   );

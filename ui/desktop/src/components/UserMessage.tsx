@@ -190,11 +190,11 @@ export default function UserMessage({ message, onMessageUpdate }: UserMessagePro
           <div className="message flex justify-end w-full">
             <div className="flex-col max-w-[85%] w-fit">
               <div className="flex flex-col group">
-                <div className="flex bg-background-accent text-text-on-accent rounded-xl py-2.5 px-4">
+                <div className="flex bg-background-accent/10 text-textPrimary rounded-xl py-2.5 px-4 backdrop-blur-sm border border-borderSubtle/30">
                   <div ref={contentRef}>
                     <MarkdownContent
                       content={displayText}
-                      className="text-text-on-accent prose-a:text-text-on-accent prose-headings:text-text-on-accent prose-strong:text-text-on-accent prose-em:text-text-on-accent user-message"
+                      className="text-textPrimary prose-a:text-blue-400 prose-headings:text-textPrimary prose-strong:text-textPrimary prose-em:text-textPrimary user-message"
                     />
                   </div>
                 </div>

@@ -88,7 +88,10 @@ export const startGoosed = async (
   dir = path.resolve(path.normalize(dir));
 
   if (process.env.GOOSE_EXTERNAL_BACKEND) {
-    return connectToExternalBackend(dir, 3000);
+    const externalPort = process.env.GOOSE_EXTERNAL_PORT
+      ? parseInt(process.env.GOOSE_EXTERNAL_PORT, 10)
+      : 3000;
+    return connectToExternalBackend(dir, externalPort);
   }
 
   // Validate that the directory actually exists and is a directory
