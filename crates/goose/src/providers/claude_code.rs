@@ -1,126 +1,47 @@
 use anyhow::Result;
-use async_stream::try_stream;
 use async_trait::async_trait;
 use rmcp::model::Role;
 use serde_json::{json, Value};
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use super::base::{ConfigKey, MessageStream, Provider, ProviderMetadata, ProviderUsage, Usage};
+use super::base::{ConfigKey, Provider, ProviderMetadata, ProviderUsage, Usage};
 use super::errors::ProviderError;
-use super::utils::emit_debug_trace;
-use crate::config::Config;
+use super::utils::{filter_extensions_from_system_prompt, RequestLog};
+use crate::config::base::ClaudeCodeCommand;
+use crate::config::search_path::SearchPaths;
+use crate::config::{Config, GooseMode};
 use crate::conversation::message::{Message, MessageContent};
 use crate::model::ModelConfig;
+use crate::subprocess::configure_command_no_window;
 use rmcp::model::Tool;
 
-pub const CLAUDE_CODE_DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250929";
-pub const CLAUDE_CODE_KNOWN_MODELS: &[&str] = &["sonnet", "opus", "claude-sonnet-4-5-20250929"];
-
-pub const CLAUDE_CODE_DOC_URL: &str = "https://claude.ai/cli";
+pub const CLAUDE_CODE_DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
+pub const CLAUDE_CODE_KNOWN_MODELS: &[&str] = &["sonnet", "opus"];
+pub const CLAUDE_CODE_DOC_URL: &str = "https://code.claude.com/docs/en/setup";
 
 #[derive(Debug, serde::Serialize)]
 pub struct ClaudeCodeProvider {
-    command: String,
+    command: PathBuf,
     model: ModelConfig,
+    #[serde(skip)]
+    name: String,
 }
 
 impl ClaudeCodeProvider {
     pub async fn from_env(model: ModelConfig) -> Result<Self> {
         let config = crate::config::Config::global();
-        let command: String = config
-            .get_param("CLAUDE_CODE_COMMAND")
-            .unwrap_or_else(|_| "claude".to_string());
-
-        let resolved_command = if !command.contains('/') {
-            Self::find_claude_executable(&command).unwrap_or(command)
-        } else {
-            command
-        };
+        let command: OsString = config.get_claude_code_command().unwrap_or_default().into();
+        let resolved_command = SearchPaths::builder().with_npm().resolve(command)?;
 
         Ok(Self {
             command: resolved_command,
             model,
+            name: Self::metadata().name,
         })
-    }
-
-    /// Search for claude executable in common installation locations
-    fn find_claude_executable(command_name: &str) -> Option<String> {
-        let home = std::env::var("HOME").ok()?;
-
-        let search_paths = vec![
-            format!("{}/.claude/local/{}", home, command_name),
-            format!("{}/.local/bin/{}", home, command_name),
-            format!("{}/bin/{}", home, command_name),
-            format!("/usr/local/bin/{}", command_name),
-            format!("/usr/bin/{}", command_name),
-            format!("/opt/claude/{}", command_name),
-        ];
-
-        for path in search_paths {
-            let path_buf = PathBuf::from(&path);
-            if path_buf.exists() && path_buf.is_file() {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    if let Ok(metadata) = std::fs::metadata(&path_buf) {
-                        let permissions = metadata.permissions();
-                        if permissions.mode() & 0o111 != 0 {
-                            tracing::info!("Found claude executable at: {}", path);
-                            return Some(path);
-                        }
-                    }
-                }
-                #[cfg(not(unix))]
-                {
-                    tracing::info!("Found claude executable at: {}", path);
-                    return Some(path);
-                }
-            }
-        }
-
-        if let Ok(path_var) = std::env::var("PATH") {
-            #[cfg(unix)]
-            let path_separator = ':';
-            #[cfg(windows)]
-            let path_separator = ';';
-
-            for dir in path_var.split(path_separator) {
-                let path_buf = PathBuf::from(dir).join(command_name);
-                if path_buf.exists() && path_buf.is_file() {
-                    let full_path = path_buf.to_string_lossy().to_string();
-                    tracing::info!("Found claude executable in PATH at: {}", full_path);
-                    return Some(full_path);
-                }
-            }
-        }
-
-        tracing::warn!("Could not find claude executable in common locations");
-        None
-    }
-
-    /// Filter out the Extensions section from the system prompt
-    fn filter_extensions_from_system_prompt(&self, system: &str) -> String {
-        // Find the Extensions section and remove it
-        if let Some(extensions_start) = system.find("# Extensions") {
-            // Look for the next major section that starts with #
-            let after_extensions = &system[extensions_start..];
-            if let Some(next_section_pos) = after_extensions[1..].find("\n# ") {
-                // Found next section, keep everything before Extensions and after the next section
-                let before_extensions = &system[..extensions_start];
-                let next_section_start = extensions_start + next_section_pos + 1;
-                let after_next_section = &system[next_section_start..];
-                format!("{}{}", before_extensions.trim_end(), after_next_section)
-            } else {
-                // No next section found, just remove everything from Extensions onward
-                system[..extensions_start].trim_end().to_string()
-            }
-        } else {
-            // No Extensions section found, return original
-            system.to_string()
-        }
     }
 
     /// Convert goose messages to the format expected by claude CLI
@@ -189,6 +110,33 @@ impl ClaudeCodeProvider {
     }
 
     /// Parse the JSON response from claude CLI
+    fn apply_permission_flags(cmd: &mut Command) -> Result<(), ProviderError> {
+        let config = Config::global();
+        let goose_mode = config.get_goose_mode().unwrap_or(GooseMode::Auto);
+
+        match goose_mode {
+            GooseMode::Auto => {
+                cmd.arg("--dangerously-skip-permissions");
+            }
+            GooseMode::SmartApprove => {
+                cmd.arg("--permission-mode").arg("acceptEdits");
+            }
+            GooseMode::Approve => {
+                return Err(ProviderError::RequestFailed(
+                    "\n\n\n### NOTE\n\n\n \
+                    Claude Code CLI provider does not support Approve mode.\n \
+                    Please use Auto (which will run anything it needs to) or \
+                    SmartApprove (most things will run or Chat Mode)\n\n\n"
+                        .to_string(),
+                ));
+            }
+            GooseMode::Chat => {
+                // Chat mode doesn't need permission flags
+            }
+        }
+        Ok(())
+    }
+
     fn parse_claude_response(
         &self,
         json_lines: &[String],
@@ -301,12 +249,11 @@ impl ClaudeCodeProvider {
                 ProviderError::RequestFailed(format!("Failed to format messages: {}", e))
             })?;
 
-        // Create a filtered system prompt without Extensions section
-        let filtered_system = self.filter_extensions_from_system_prompt(system);
+        let filtered_system = filter_extensions_from_system_prompt(system);
 
         if std::env::var("GOOSE_CLAUDE_CODE_DEBUG").is_ok() {
             println!("=== CLAUDE CODE PROVIDER DEBUG ===");
-            println!("Command: {}", self.command);
+            println!("Command: {:?}", self.command);
             println!("Original system prompt length: {} chars", system.len());
             println!(
                 "Filtered system prompt length: {} chars",
@@ -322,6 +269,7 @@ impl ClaudeCodeProvider {
         }
 
         let mut cmd = Command::new(&self.command);
+        configure_command_no_window(&mut cmd);
         cmd.arg("-p")
             .arg(messages_json.to_string())
             .arg("--system-prompt")
@@ -335,22 +283,16 @@ impl ClaudeCodeProvider {
         cmd.arg("--verbose").arg("--output-format").arg("json");
 
         // Add permission mode based on GOOSE_MODE setting
-        let config = Config::global();
-        if let Ok(goose_mode) = config.get_param::<String>("GOOSE_MODE") {
-            if goose_mode.as_str() == "auto" {
-                cmd.arg("--permission-mode").arg("acceptEdits");
-            }
-        }
+        Self::apply_permission_flags(&mut cmd)?;
 
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| ProviderError::RequestFailed(format!(
-                "Failed to spawn Claude CLI command '{}': {}. \
-                Make sure the Claude Code CLI is installed and in your PATH, or set CLAUDE_CODE_COMMAND in your config to the correct path.",
+        let mut child = cmd.spawn().map_err(|e| {
+            ProviderError::RequestFailed(format!(
+                "Failed to spawn Claude CLI command '{:?}': {}.",
                 self.command, e
-            )))?;
+            ))
+        })?;
 
         let stdout = child
             .stdout
@@ -443,98 +385,6 @@ impl ClaudeCodeProvider {
             ProviderUsage::new(self.model.model_name.clone(), usage),
         ))
     }
-
-    /// Execute command with streaming support
-    async fn execute_command_streaming(
-        &self,
-        system: &str,
-        messages: &[Message],
-        _tools: &[Tool],
-    ) -> Result<tokio::process::Child, ProviderError> {
-        let messages_json = self
-            .messages_to_claude_format(system, messages)
-            .map_err(|e| {
-                ProviderError::RequestFailed(format!("Failed to format messages: {}", e))
-            })?;
-
-        let filtered_system = self.filter_extensions_from_system_prompt(system);
-
-        let mut cmd = Command::new(&self.command);
-        cmd.arg("-p")
-            .arg(messages_json.to_string())
-            .arg("--system-prompt")
-            .arg(&filtered_system);
-
-        if CLAUDE_CODE_KNOWN_MODELS.contains(&self.model.model_name.as_str()) {
-            cmd.arg("--model").arg(&self.model.model_name);
-        }
-
-        // Use stream-json format for streaming
-        cmd.arg("--verbose")
-            .arg("--output-format")
-            .arg("stream-json")
-            .arg("--include-partial-messages");
-
-        let config = Config::global();
-        if let Ok(goose_mode) = config.get_param::<String>("GOOSE_MODE") {
-            if goose_mode.as_str() == "auto" {
-                cmd.arg("--permission-mode").arg("acceptEdits");
-            }
-        }
-
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-        cmd.spawn().map_err(|e| {
-            ProviderError::RequestFailed(format!(
-                "Failed to spawn Claude CLI command '{}': {}. \
-                Make sure the Claude Code CLI is installed and in your PATH, or set CLAUDE_CODE_COMMAND in your config to the correct path.",
-                self.command, e
-            ))
-        })
-    }
-
-}
-
-/// Parse a single line from stream-json output (static function)
-/// Only processes DELTA events, not complete messages
-fn parse_streaming_line(line: &str) -> Result<Option<String>, ProviderError> {
-    let parsed: Value = serde_json::from_str(line).map_err(|e| {
-        ProviderError::RequestFailed(format!("Failed to parse JSON line: {}", e))
-    })?;
-
-    // Only look for DELTA events, not complete messages
-    if let Some(msg_type) = parsed.get("type").and_then(|t| t.as_str()) {
-        match msg_type {
-            "stream_event" => {
-                // New format: {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
-                if let Some(event) = parsed.get("event") {
-                    if let Some(event_type) = event.get("type").and_then(|t| t.as_str()) {
-                        if event_type == "content_block_delta" {
-                            if let Some(delta) = event.get("delta") {
-                                if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                                    return Ok(Some(text.to_string()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            "content_block_delta" => {
-                // Old format (if still used): {"type":"content_block_delta","delta":{"text":"..."}}
-                if let Some(delta) = parsed.get("delta") {
-                    if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                        return Ok(Some(text.to_string()));
-                    }
-                }
-            }
-            // NOTE: We intentionally do NOT process "assistant" events here
-            // because they contain the COMPLETE accumulated message, not deltas.
-            // Processing them would cause duplication.
-            _ => {}
-        }
-    }
-
-    Ok(None)
 }
 
 #[async_trait]
@@ -542,18 +392,17 @@ impl Provider for ClaudeCodeProvider {
     fn metadata() -> ProviderMetadata {
         ProviderMetadata::new(
             "claude-code",
-            "Claude Code",
-            "Execute Claude models via claude CLI tool",
+            "Claude Code CLI",
+            "Requires claude CLI installed, no MCPs. Use Anthropic provider for full features.",
             CLAUDE_CODE_DEFAULT_MODEL,
             CLAUDE_CODE_KNOWN_MODELS.to_vec(),
             CLAUDE_CODE_DOC_URL,
-            vec![ConfigKey::new(
-                "CLAUDE_CODE_COMMAND",
-                false,
-                false,
-                Some("claude"),
-            )],
+            vec![ConfigKey::from_value_type::<ClaudeCodeCommand>(true, false)],
         )
+    }
+
+    fn get_name(&self) -> &str {
+        &self.name
     }
 
     fn get_model_config(&self) -> ModelConfig {
@@ -588,160 +437,18 @@ impl Provider for ClaudeCodeProvider {
             "system": system,
             "messages": messages.len()
         });
+        let mut log = RequestLog::start(model_config, &payload)?;
 
         let response = json!({
             "lines": json_lines.len(),
             "usage": usage
         });
 
-        emit_debug_trace(model_config, &payload, &response, &usage);
+        log.write(&response, Some(&usage))?;
 
         Ok((
             message,
             ProviderUsage::new(model_config.model_name.clone(), usage),
         ))
-    }
-
-    fn supports_streaming(&self) -> bool {
-        true
-    }
-
-    async fn stream(
-        &self,
-        system: &str,
-        messages: &[Message],
-        tools: &[Tool],
-    ) -> Result<MessageStream, ProviderError> {
-        tracing::info!("Claude Code provider: stream() method called with model: {}", self.model.model_name);
-
-        // Check if this is a session description request - don't stream those
-        if system.contains("four words or less") || system.contains("4 words or less") {
-            let (message, usage) = self.generate_simple_session_description(messages)?;
-            return Ok(super::base::stream_from_single_message(message, usage));
-        }
-
-        tracing::info!("Claude Code provider: starting streaming command execution");
-        let mut child = self.execute_command_streaming(system, messages, tools).await?;
-
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| ProviderError::RequestFailed("Failed to capture stdout".to_string()))?;
-
-        let model_name = self.model.model_name.clone();
-
-        Ok(Box::pin(try_stream! {
-            let mut reader = BufReader::new(stdout);
-            let mut line = String::new();
-            let mut line_count = 0;
-            let mut has_sent_content = false;
-
-            // Generate a unique message ID for this streaming session
-            let streaming_message_id = format!("stream-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-
-            tracing::info!("Claude Code: Starting to read streaming output with ID: {}", streaming_message_id);
-
-            loop {
-                line.clear();
-                match reader.read_line(&mut line).await {
-                    Ok(0) => {
-                        tracing::info!("Claude Code: Reached EOF after {} lines", line_count);
-                        break;
-                    }
-                    Ok(bytes_read) => {
-                        line_count += 1;
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-
-                        tracing::debug!("Claude Code: Line {}: {} bytes", line_count, bytes_read);
-
-                        // Try to parse the streaming line
-                        if let Ok(Some(text)) = parse_streaming_line(trimmed) {
-                            // Claude CLI sends DELTAS in content_block_delta events
-                            // Just forward them directly to the frontend
-                            let preview = text.chars().take(50).collect::<String>();
-                            tracing::info!("Claude Code: Sending text chunk ({} chars): {}", text.len(), preview);
-
-                            let mut message = Message::new(
-                                Role::Assistant,
-                                chrono::Utc::now().timestamp(),
-                                vec![MessageContent::text(text)],
-                            );
-                            message.id = Some(streaming_message_id.clone());
-
-                            has_sent_content = true;
-                            yield (Some(message), None);
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Claude Code: Error reading line: {}", e);
-                        Err(ProviderError::RequestFailed(format!(
-                            "Failed to read output: {}",
-                            e
-                        )))?;
-                    }
-                }
-            }
-
-            // Wait for process to complete
-            let _exit_status = child.wait().await.map_err(|e| {
-                ProviderError::RequestFailed(format!("Failed to wait for command: {}", e))
-            })?;
-
-            // Send final message with usage info
-            if has_sent_content {
-                let mut final_message = Message::new(
-                    Role::Assistant,
-                    chrono::Utc::now().timestamp(),
-                    vec![],  // Empty content, just usage
-                );
-                final_message.id = Some(streaming_message_id);
-
-                let usage = Usage::default();
-                let provider_usage = ProviderUsage::new(model_name, usage);
-
-                yield (Some(final_message), Some(provider_usage));
-            }
-        }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ModelConfig;
-    use super::*;
-
-    #[test]
-    fn test_permission_mode_flag_construction() {
-        // Test that in auto mode, the --permission-mode acceptEdits flag is added
-        std::env::set_var("GOOSE_MODE", "auto");
-
-        let config = Config::global();
-        let goose_mode: String = config.get_param("GOOSE_MODE").unwrap();
-        assert_eq!(goose_mode, "auto");
-
-        std::env::remove_var("GOOSE_MODE");
-    }
-
-    #[tokio::test]
-    async fn test_claude_code_invalid_model_no_fallback() {
-        // Test that an invalid model is kept as-is (no fallback)
-        let invalid_model = ModelConfig::new_or_fail("invalid-model");
-        let provider = ClaudeCodeProvider::from_env(invalid_model).await.unwrap();
-        let config = provider.get_model_config();
-
-        assert_eq!(config.model_name, "invalid-model");
-    }
-
-    #[tokio::test]
-    async fn test_claude_code_valid_model() {
-        // Test that a valid model is preserved
-        let valid_model = ModelConfig::new_or_fail("sonnet");
-        let provider = ClaudeCodeProvider::from_env(valid_model).await.unwrap();
-        let config = provider.get_model_config();
-
-        assert_eq!(config.model_name, "sonnet");
     }
 }

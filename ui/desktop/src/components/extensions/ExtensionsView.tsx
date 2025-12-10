@@ -16,6 +16,7 @@ import {
 } from '../settings/extensions/utils';
 import { activateExtension } from '../settings/extensions';
 import { useConfig } from '../ConfigContext';
+import { SearchView } from '../conversation/SearchView';
 
 export type ExtensionsViewOptions = {
   deepLinkConfig?: ExtensionConfig;
@@ -31,6 +32,7 @@ export default function ExtensionsView({
 }) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [searchTerm, setSearchTerm] = useState('');
   const { addExtension } = useConfig();
   const chatContext = useChatContext();
   const sessionId = chatContext?.chat.sessionId || '';
@@ -102,15 +104,19 @@ export default function ExtensionsView({
 
   return (
     <MainPanelLayout>
-      <div className="flex flex-col min-w-0 flex-1 overflow-y-auto relative bg-black">
-        <div className="bg-black px-8 pb-4 pt-16">
+      <div
+        className="flex flex-col min-w-0 flex-1 overflow-y-auto relative"
+        data-search-scroll-area
+      >
+        <div className="bg-background-default px-8 pb-4 pt-16">
           <div className="flex flex-col page-transition">
             <div className="flex justify-between items-center mb-1">
-              <h1 className="text-4xl font-light text-white">Extensions</h1>
+              <h1 className="text-4xl font-light">Extensions</h1>
             </div>
-            <p className="text-sm text-white/70 mb-6">
+            <p className="text-sm text-text-muted mb-6">
               These extensions use the Model Context Protocol (MCP). They can expand Goose's
-              capabilities using three main components: Prompts, Resources, and Tools.
+              capabilities using three main components: Prompts, Resources, and Tools. ⌘F/Ctrl+F to
+              search.
             </p>
 
             {/* Action Buttons */}
@@ -138,16 +144,19 @@ export default function ExtensionsView({
         </div>
 
         <div className="px-8 pb-16">
-          <ExtensionsSection
-            key={refreshKey}
-            sessionId={sessionId}
-            deepLinkConfig={viewOptions.deepLinkConfig}
-            showEnvVars={viewOptions.showEnvVars}
-            hideButtons={true}
-            onModalClose={(extensionName: string) => {
-              scrollToExtension(extensionName);
-            }}
-          />
+          <SearchView onSearch={(term) => setSearchTerm(term)} placeholder="Search extensions...">
+            <ExtensionsSection
+              key={refreshKey}
+              sessionId={sessionId}
+              deepLinkConfig={viewOptions.deepLinkConfig}
+              showEnvVars={viewOptions.showEnvVars}
+              hideButtons={true}
+              searchTerm={searchTerm}
+              onModalClose={(extensionName: string) => {
+                scrollToExtension(extensionName);
+              }}
+            />
+          </SearchView>
         </div>
 
         {/* Bottom padding space - same as in hub.tsx */}

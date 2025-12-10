@@ -21,7 +21,7 @@ use crate::providers::formats::gcpvertexai::{
 use crate::providers::formats::gcpvertexai::GcpLocation::Iowa;
 use crate::providers::gcpauth::GcpAuth;
 use crate::providers::retry::RetryConfig;
-use crate::providers::utils::emit_debug_trace;
+use crate::providers::utils::RequestLog;
 use rmcp::model::Tool;
 
 /// Base URL for GCP Vertex AI documentation
@@ -76,6 +76,8 @@ pub struct GcpVertexAIProvider {
     /// Retry configuration for handling rate limit errors
     #[serde(skip)]
     retry_config: RetryConfig,
+    #[serde(skip)]
+    name: String,
 }
 
 impl GcpVertexAIProvider {
@@ -109,6 +111,7 @@ impl GcpVertexAIProvider {
             location,
             model,
             retry_config,
+            name: Self::metadata().name,
         })
     }
 
@@ -194,6 +197,7 @@ impl GcpVertexAIProvider {
         let endpoint = match provider {
             ModelProvider::Anthropic => "streamRawPredict",
             ModelProvider::Google => "generateContent",
+            ModelProvider::MaaS(_) => "generateContent",
         };
 
         // Construct path for URL
@@ -494,6 +498,10 @@ impl Provider for GcpVertexAIProvider {
         )
     }
 
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+
     /// Completes a model interaction by sending a request and processing the response.
     ///
     /// # Arguments
@@ -518,7 +526,8 @@ impl Provider for GcpVertexAIProvider {
         let response = self.post(&request, &context).await?;
         let usage = get_usage(&response, &context)?;
 
-        emit_debug_trace(model_config, &request, &response, &usage);
+        let mut log = RequestLog::start(model_config, &request)?;
+        log.write(&response, Some(&usage))?;
 
         // Convert response to message
         let message = response_to_message(response, context)?;
@@ -578,8 +587,12 @@ mod tests {
 
     #[test]
     fn test_model_provider_conversion() {
-        assert_eq!(ModelProvider::Anthropic.as_str(), "anthropic");
-        assert_eq!(ModelProvider::Google.as_str(), "google");
+        assert_eq!(ModelProvider::Anthropic.as_str(), "anthropic".to_string());
+        assert_eq!(ModelProvider::Google.as_str(), "google".to_string());
+        assert_eq!(
+            ModelProvider::MaaS("qwen".to_string()).as_str(),
+            "qwen".to_string()
+        );
     }
 
     #[test]

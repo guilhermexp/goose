@@ -6,7 +6,6 @@ import { initializeCostDatabase } from '../utils/costDatabase';
 import {
   backupConfig,
   initConfig,
-  Message as ApiMessage,
   readAllConfig,
   Recipe,
   recoverConfig,
@@ -15,7 +14,6 @@ import {
   validateConfig,
 } from '../api';
 import { COST_TRACKING_ENABLED } from '../updates';
-import { convertApiMessageToFrontendMessage } from '../components/context_management';
 
 export enum AgentState {
   UNINITIALIZED = 'uninitialized',
@@ -49,40 +47,83 @@ export function useAgent(): UseAgentReturn {
   const [agentState, setAgentState] = useState<AgentState>(AgentState.UNINITIALIZED);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const initPromiseRef = useRef<Promise<ChatType> | null>(null);
-  const [recipeFromAppConfig, setRecipeFromAppConfig] = useState<Recipe | null>(
-    (window.appConfig.get('recipe') as Recipe) || null
+  const deletedSessionsRef = useRef<Set<string>>(new Set());
+  const recipeIdFromConfig = useRef<string | null>(
+    (window.appConfig.get('recipeId') as string | null | undefined) ?? null
+  );
+  const recipeDeeplinkFromConfig = useRef<string | null>(
+    (window.appConfig.get('recipeDeeplink') as string | null | undefined) ?? null
+  );
+  const scheduledJobIdFromConfig = useRef<string | null>(
+    (window.appConfig.get('scheduledJobId') as string | null | undefined) ?? null
   );
   const { getExtensions, addExtension, read } = useConfig();
 
   const resetChat = useCallback(() => {
     setSessionId(null);
     setAgentState(AgentState.UNINITIALIZED);
-    setRecipeFromAppConfig(null);
+    recipeIdFromConfig.current = null;
+    recipeDeeplinkFromConfig.current = null;
+    scheduledJobIdFromConfig.current = null;
+    deletedSessionsRef.current.clear();
   }, []);
 
   const agentIsInitialized = agentState === AgentState.INITIALIZED;
   const currentChat = useCallback(
     async (initContext: InitializationContext): Promise<ChatType> => {
-      if (agentIsInitialized && sessionId) {
-        const agentResponse = await resumeAgent({
-          body: {
-            session_id: sessionId,
-          },
-          throwOnError: true,
-        });
+      // Skip deleted sessions
+      if (
+        initContext.resumeSessionId &&
+        deletedSessionsRef.current.has(initContext.resumeSessionId)
+      ) {
+        initContext.resumeSessionId = undefined;
 
-        const agentSession = agentResponse.data;
-        const messages = agentSession.conversation || [];
-        return {
-          sessionId: agentSession.id,
-          title: agentSession.recipe?.title || agentSession.description,
-          messageHistoryIndex: 0,
-          messages: messages?.map((message: ApiMessage) =>
-            convertApiMessageToFrontendMessage(message)
-          ),
-          recipe: agentSession.recipe,
-          recipeParameters: agentSession.user_recipe_values || null,
-        };
+        // Clear from URL
+        const url = new URL(window.location.href);
+        url.searchParams.delete('resumeSessionId');
+        window.history.replaceState({}, '', url.toString());
+      }
+
+      if (sessionId && deletedSessionsRef.current.has(sessionId)) {
+        setSessionId(null);
+      }
+
+      if (agentIsInitialized && sessionId && !deletedSessionsRef.current.has(sessionId)) {
+        let agentResponse;
+        try {
+          agentResponse = await resumeAgent({
+            body: {
+              session_id: sessionId,
+              load_model_and_extensions: false,
+            },
+            throwOnError: true,
+          });
+        } catch {
+          // Mark session as deleted and clear state
+          deletedSessionsRef.current.add(sessionId);
+          setSessionId(null);
+
+          // Clear from URL
+          const url = new URL(window.location.href);
+          if (url.searchParams.get('resumeSessionId')) {
+            url.searchParams.delete('resumeSessionId');
+            window.history.replaceState({}, '', url.toString());
+          }
+        }
+
+        // Fall through to create new session
+        if (agentResponse?.data) {
+          const agentSession = agentResponse.data;
+          const messages = agentSession.conversation || [];
+          return {
+            sessionId: agentSession.id,
+            name: agentSession.recipe?.title || agentSession.name,
+            messageHistoryIndex: 0,
+            messages,
+            recipe: agentSession.recipe,
+            recipeParameterValues: agentSession.user_recipe_values || null,
+          };
+        }
       }
 
       if (initPromiseRef.current) {
@@ -104,26 +145,73 @@ export function useAgent(): UseAgentReturn {
             throw new NoProviderOrModelError();
           }
 
-          const agentResponse = initContext.resumeSessionId
-            ? await resumeAgent({
-                body: {
-                  session_id: initContext.resumeSessionId,
-                },
-                throwOnError: true,
-              })
-            : await startAgent({
+          let agentResponse;
+          try {
+            agentResponse = initContext.resumeSessionId
+              ? await resumeAgent({
+                  body: {
+                    session_id: initContext.resumeSessionId,
+                    load_model_and_extensions: false,
+                  },
+                  throwOnError: true,
+                })
+              : await startAgent({
+                  body: {
+                    working_dir: window.appConfig.get('GOOSE_WORKING_DIR') as string,
+                    ...buildRecipeInput(
+                      initContext.recipe,
+                      recipeIdFromConfig.current,
+                      recipeDeeplinkFromConfig.current
+                    ),
+                  },
+                  throwOnError: true,
+                });
+          } catch (error) {
+            // If resuming fails, mark session as deleted and create new agent
+            if (initContext.resumeSessionId) {
+              deletedSessionsRef.current.add(initContext.resumeSessionId);
+
+              // Clear from URL
+              const url = new URL(window.location.href);
+              url.searchParams.delete('resumeSessionId');
+              window.history.replaceState({}, '', url.toString());
+
+              agentResponse = await startAgent({
                 body: {
                   working_dir: window.appConfig.get('GOOSE_WORKING_DIR') as string,
-                  recipe: recipeFromAppConfig ?? initContext.recipe,
+                  ...buildRecipeInput(
+                    initContext.recipe,
+                    recipeIdFromConfig.current,
+                    recipeDeeplinkFromConfig.current
+                  ),
                 },
                 throwOnError: true,
               });
+
+              // Clear resume flag
+              initContext.resumeSessionId = undefined;
+            } else {
+              throw error;
+            }
+          }
 
           const agentSession = agentResponse.data;
           if (!agentSession) {
             throw Error('Failed to get session info');
           }
           setSessionId(agentSession.id);
+
+          if (!initContext.recipe && agentSession.recipe && scheduledJobIdFromConfig.current) {
+            agentSession.recipe = {
+              ...agentSession.recipe,
+              scheduledJobId: scheduledJobIdFromConfig.current,
+              isScheduledExecution: true,
+            } as Recipe;
+            scheduledJobIdFromConfig.current = null;
+          }
+
+          recipeIdFromConfig.current = null;
+          recipeDeeplinkFromConfig.current = null;
 
           agentWaitingMessage('Agent is loading config');
 
@@ -159,30 +247,31 @@ export function useAgent(): UseAgentReturn {
           const conversation = agentSession.conversation || [];
           // If we're loading a recipe from initContext (new recipe load), start with empty messages
           // Otherwise, use the messages from the session
-          const messages =
-            initContext.recipe && !initContext.resumeSessionId
-              ? []
-              : conversation.map((message: ApiMessage) =>
-                  convertApiMessageToFrontendMessage(message)
-                );
-
+          const messages = initContext.recipe && !initContext.resumeSessionId ? [] : conversation;
           let initChat: ChatType = {
             sessionId: agentSession.id,
-            title: agentSession.recipe?.title || agentSession.description,
+            name: agentSession.recipe?.title || agentSession.name,
             messageHistoryIndex: 0,
             messages: messages,
             recipe: recipe,
-            recipeParameters: agentSession.user_recipe_values || null,
+            recipeParameterValues: agentSession.user_recipe_values || null,
           };
 
           setAgentState(AgentState.INITIALIZED);
 
           return initChat;
         } catch (error) {
-          if ((error + '').includes('Failed to create provider')) {
+          if (
+            (error + '').includes('Failed to create provider') ||
+            error instanceof NoProviderOrModelError
+          ) {
             setAgentState(AgentState.NO_PROVIDER);
-          } else {
-            setAgentState(AgentState.ERROR);
+            throw error;
+          }
+          setAgentState(AgentState.ERROR);
+          if (typeof error === 'object' && error !== null && 'message' in error) {
+            let error_message = error.message as string;
+            throw new Error(error_message);
           }
           throw error;
         } finally {
@@ -194,7 +283,7 @@ export function useAgent(): UseAgentReturn {
       initPromiseRef.current = initPromise;
       return initPromise;
     },
-    [agentIsInitialized, sessionId, read, recipeFromAppConfig, getExtensions, addExtension]
+    [agentIsInitialized, sessionId, read, getExtensions, addExtension]
   );
 
   return {
@@ -229,4 +318,24 @@ const handleConfigRecovery = async () => {
       await initConfig();
     }
   }
+};
+
+const buildRecipeInput = (
+  recipeOverride?: Recipe,
+  recipeId?: string | null,
+  recipeDeeplink?: string | null
+) => {
+  if (recipeId) {
+    return { recipe_id: recipeId };
+  }
+
+  if (recipeDeeplink) {
+    return { recipe_deeplink: recipeDeeplink };
+  }
+
+  if (recipeOverride) {
+    return { recipe: recipeOverride };
+  }
+
+  return {};
 };

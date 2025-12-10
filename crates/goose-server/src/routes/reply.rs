@@ -8,17 +8,12 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::{stream::StreamExt, Stream};
-use goose::conversation::message::{Message, MessageContent};
+use goose::agents::{AgentEvent, SessionConfig};
+use goose::conversation::message::{Message, MessageContent, TokenState};
 use goose::conversation::Conversation;
-use goose::permission::{Permission, PermissionConfirmation};
 use goose::session::SessionManager;
-use goose::{
-    agents::{AgentEvent, SessionConfig},
-    permission::permission_confirmation::PrincipalType,
-};
 use rmcp::model::ServerNotification;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{
     convert::Infallible,
     pin::Pin,
@@ -30,7 +25,6 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
-use utoipa::ToSchema;
 
 fn track_tool_telemetry(content: &MessageContent, all_messages: &[Message]) {
     match content {
@@ -121,17 +115,19 @@ impl IntoResponse for SseResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(tag = "type")]
-enum MessageEvent {
+pub enum MessageEvent {
     Message {
         message: Message,
+        token_state: TokenState,
     },
     Error {
         error: String,
     },
     Finish {
         reason: String,
+        token_state: TokenState,
     },
     ModelChange {
         model: String,
@@ -139,9 +135,34 @@ enum MessageEvent {
     },
     Notification {
         request_id: String,
+        #[schema(value_type = Object)]
         message: ServerNotification,
     },
+    UpdateConversation {
+        conversation: Conversation,
+    },
     Ping,
+}
+
+async fn get_token_state(session_id: &str) -> TokenState {
+    SessionManager::get_session(session_id, false)
+        .await
+        .map(|session| TokenState {
+            input_tokens: session.input_tokens.unwrap_or(0),
+            output_tokens: session.output_tokens.unwrap_or(0),
+            total_tokens: session.total_tokens.unwrap_or(0),
+            accumulated_input_tokens: session.accumulated_input_tokens.unwrap_or(0),
+            accumulated_output_tokens: session.accumulated_output_tokens.unwrap_or(0),
+            accumulated_total_tokens: session.accumulated_total_tokens.unwrap_or(0),
+        })
+        .inspect_err(|e| {
+            tracing::warn!(
+                "Failed to fetch session token state for {}: {}",
+                session_id,
+                e
+            );
+        })
+        .unwrap_or_default()
 }
 
 async fn stream_event(
@@ -155,6 +176,7 @@ async fn stream_event(
             e
         )
     });
+
     if tx.send(format!("data: {}\n\n", json)).await.is_err() {
         tracing::info!("client hung up");
         cancel_token.cancel();
@@ -167,7 +189,9 @@ async fn stream_event(
     path = "/reply",
     request_body = ChatRequest,
     responses(
-        (status = 200, description = "Streaming response initiated", content_type = "text/event-stream"),
+        (status = 200, description = "Streaming response initiated",
+         body = MessageEvent,
+         content_type = "text/event-stream"),
         (status = 424, description = "Agent not initialized"),
         (status = 500, description = "Internal server error")
     )
@@ -249,17 +273,30 @@ pub async fn reply(
 
         let session_config = SessionConfig {
             id: session_id.clone(),
-            working_dir: session.working_dir.clone(),
             schedule_id: session.schedule_id.clone(),
-            execution_mode: None,
             max_turns: None,
             retry_config: None,
         };
 
+        let user_message = match messages.last() {
+            Some(msg) => msg,
+            _ => {
+                let _ = stream_event(
+                    MessageEvent::Error {
+                        error: "Reply started with empty messages".to_string(),
+                    },
+                    &task_tx,
+                    &task_cancel,
+                )
+                .await;
+                return;
+            }
+        };
+
         let mut stream = match agent
             .reply(
-                messages.clone(),
-                Some(session_config.clone()),
+                user_message.clone(),
+                session_config,
                 Some(task_cancel.clone()),
             )
             .await
@@ -300,16 +337,14 @@ pub async fn reply(
 
                             all_messages.push(message.clone());
 
-                            // Only send message to client if it's user_visible
-                            if message.is_user_visible() {
-                                stream_event(MessageEvent::Message { message }, &tx, &cancel_token).await;
-                            }
+                            let token_state = get_token_state(&session_id).await;
+
+                            stream_event(MessageEvent::Message { message, token_state }, &tx, &cancel_token).await;
                         }
                         Ok(Some(Ok(AgentEvent::HistoryReplaced(new_messages)))) => {
-                            // Replace the message history with the compacted messages
-                            all_messages = Conversation::new_unvalidated(new_messages);
-                            // Note: We don't send this as a stream event since it's an internal operation
-                            // The client will see the compaction notification message that was sent before this event
+                            all_messages = new_messages.clone();
+                            stream_event(MessageEvent::UpdateConversation {conversation: new_messages}, &tx, &cancel_token).await;
+
                         }
                         Ok(Some(Ok(AgentEvent::ModelChange { model, mode }))) => {
                             stream_event(MessageEvent::ModelChange { model, mode }, &tx, &cancel_token).await;
@@ -396,9 +431,12 @@ pub async fn reply(
             );
         }
 
+        let final_token_state = get_token_state(&session_id).await;
+
         let _ = stream_event(
             MessageEvent::Finish {
                 reason: "stop".to_string(),
+                token_state: final_token_state,
             },
             &task_tx,
             &cancel_token,
@@ -408,60 +446,12 @@ pub async fn reply(
     Ok(SseResponse::new(stream))
 }
 
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct PermissionConfirmationRequest {
-    id: String,
-    #[serde(default = "default_principal_type")]
-    principal_type: PrincipalType,
-    action: String,
-    session_id: String,
-}
-
-fn default_principal_type() -> PrincipalType {
-    PrincipalType::Tool
-}
-
-#[utoipa::path(
-    post,
-    path = "/confirm",
-    request_body = PermissionConfirmationRequest,
-    responses(
-        (status = 200, description = "Permission action is confirmed", body = Value),
-        (status = 401, description = "Unauthorized - invalid secret key"),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn confirm_permission(
-    State(state): State<Arc<AppState>>,
-    Json(request): Json<PermissionConfirmationRequest>,
-) -> Result<Json<Value>, StatusCode> {
-    let agent = state.get_agent_for_route(request.session_id).await?;
-    let permission = match request.action.as_str() {
-        "always_allow" => Permission::AlwaysAllow,
-        "allow_once" => Permission::AllowOnce,
-        "deny" => Permission::DenyOnce,
-        _ => Permission::DenyOnce,
-    };
-
-    agent
-        .handle_confirmation(
-            request.id.clone(),
-            PermissionConfirmation {
-                principal_type: request.principal_type,
-                permission,
-            },
-        )
-        .await;
-    Ok(Json(Value::Object(serde_json::Map::new())))
-}
-
 pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route(
             "/reply",
             post(reply).layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
         )
-        .route("/confirm", post(confirm_permission))
         .with_state(state)
 }
 

@@ -2,15 +2,20 @@ import { ToolIconWithStatus, ToolCallStatus } from './ToolCallStatusIndicator';
 import { getToolCallIcon } from '../utils/toolIconMapping';
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from './ui/button';
-import { ToolCallArgumentValue } from './ToolCallArguments';
-import { Content, ToolRequestMessageContent, ToolResponseMessageContent } from '../types/message';
+import { ToolCallArguments, ToolCallArgumentValue } from './ToolCallArguments';
+import MarkdownContent from './MarkdownContent';
+import {
+  ToolRequestMessageContent,
+  ToolResponseMessageContent,
+  NotificationEvent,
+} from '../types/message';
 import { cn, snakeToTitleCase } from '../utils';
 import { LoadingStatus } from './ui/Dot';
-import { NotificationEvent } from '../hooks/useMessageStream';
 import { ChevronRight, FlaskConical } from 'lucide-react';
 import { TooltipWrapper } from './settings/providers/subcomponents/buttons/TooltipWrapper';
 import MCPUIResourceRenderer from './MCPUIResourceRenderer';
 import { isUIResource } from '@mcp-ui/client';
+import { Content, EmbeddedResource } from '../api';
 
 interface ToolCallWithResponseProps {
   isCancelledMessage: boolean;
@@ -21,22 +26,44 @@ interface ToolCallWithResponseProps {
   append?: (value: string) => void; // Function to append messages to the chat
 }
 
+function getToolResultValue(toolResult: Record<string, unknown>): Content[] | null {
+  if ('value' in toolResult && Array.isArray(toolResult.value)) {
+    return toolResult.value as Content[];
+  }
+  return null;
+}
+
+function isEmbeddedResource(content: Content): content is EmbeddedResource {
+  return 'resource' in content && typeof (content as Record<string, unknown>).resource === 'object';
+}
+
 export default function ToolCallWithResponse({
   isCancelledMessage,
   toolRequest,
   toolResponse,
   notifications,
-  isStreamingMessage = false,
+  isStreamingMessage,
   append,
 }: ToolCallWithResponseProps) {
-  const toolCall = toolRequest.toolCall.status === 'success' ? toolRequest.toolCall.value : null;
-  if (!toolCall) {
+  // Handle both the wrapped ToolResult format and the unwrapped format
+  // The server serializes ToolResult<T> as { status: "success", value: T } or { status: "error", error: string }
+  const toolCallData = toolRequest.toolCall as Record<string, unknown>;
+  const toolCall =
+    toolCallData?.status === 'success'
+      ? (toolCallData.value as { name: string; arguments: Record<string, unknown> })
+      : (toolCallData as { name: string; arguments: Record<string, unknown> });
+
+  if (!toolCall || !toolCall.name) {
     return null;
   }
 
   return (
     <>
-      <div className={cn('w-full text-sm font-sans overflow-hidden')}>
+      <div
+        className={cn(
+          'w-full text-sm font-sans rounded-lg overflow-hidden border-borderSubtle border bg-background-muted'
+        )}
+      >
         <ToolCallView
           {...{
             isCancelledMessage,
@@ -48,12 +75,15 @@ export default function ToolCallWithResponse({
         />
       </div>
       {/* MCP UI — Inline */}
-      {toolResponse?.toolResult?.value &&
-        toolResponse.toolResult.value.map((content, index) => {
-          if (isUIResource(content)) {
+      {toolResponse?.toolResult &&
+        getToolResultValue(toolResponse.toolResult)?.map((content, index) => {
+          const resourceContent = isEmbeddedResource(content)
+            ? { ...content, type: 'resource' as const }
+            : null;
+          if (resourceContent && isUIResource(resourceContent)) {
             return (
-              <div key={`${content.type}-${index}`} className="mt-3">
-                <MCPUIResourceRenderer content={content} appendPromptToChat={append} />
+              <div key={index} className="mt-3">
+                <MCPUIResourceRenderer content={resourceContent} appendPromptToChat={append} />
                 <div className="mt-3 p-4 py-3 border border-borderSubtle rounded-lg bg-background-muted flex items-center">
                   <FlaskConical className="mr-2" size={20} />
                   <div className="text-sm font-sans">
@@ -131,7 +161,8 @@ interface Progress {
 }
 
 const logToString = (logMessage: NotificationEvent) => {
-  const params = logMessage.message.params;
+  const message = logMessage.message as { method: string; params: unknown };
+  const params = message.params as Record<string, unknown>;
 
   // Special case for the developer system shell logs
   if (
@@ -147,8 +178,10 @@ const logToString = (logMessage: NotificationEvent) => {
   return typeof params.data === 'string' ? params.data : JSON.stringify(params.data);
 };
 
-const notificationToProgress = (notification: NotificationEvent): Progress =>
-  notification.message.params as unknown as Progress;
+const notificationToProgress = (notification: NotificationEvent): Progress => {
+  const message = notification.message as { method: string; params: unknown };
+  return message.params as Progress;
+};
 
 // Helper function to extract extension name for tooltip
 const getExtensionTooltip = (toolCallName: string): string | null => {
@@ -185,7 +218,17 @@ function ToolCallView({
     };
   }, []);
 
-  const isToolDetails = Object.entries(toolCall?.arguments).length > 0;
+  const isExpandToolDetails = (() => {
+    switch (responseStyle) {
+      case 'concise':
+        return false;
+      case 'detailed':
+      default:
+        return true;
+    }
+  })();
+
+  const isToolDetails = toolCall?.arguments && Object.entries(toolCall.arguments).length > 0;
 
   // Check if streaming has finished but no tool response was received
   // This is a workaround for cases where the backend doesn't send tool responses
@@ -196,7 +239,9 @@ function ToolCallView({
     ? shouldShowAsComplete
       ? 'success'
       : 'loading'
-    : toolResponse.toolResult.status;
+    : (toolResponse.toolResult as Record<string, unknown>).status === 'error'
+      ? 'error'
+      : 'success';
 
   // Tool call timing tracking
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -208,32 +253,26 @@ function ToolCallView({
     }
   }, [toolResponse, startTime]);
 
-  const toolResults: { result: Content; isExpandToolResults: boolean }[] =
+  const toolResults: Content[] =
     loadingStatus === 'success' && Array.isArray(toolResponse?.toolResult.value)
-      ? toolResponse!.toolResult.value
-          .filter((item) => {
-            const audience = item.annotations?.audience as string[] | undefined;
-            return !audience || audience.includes('user');
-          })
-          .map((item) => {
-            // Use user preference for detailed/concise, but still respect high priority items
-            const priority = (item.annotations?.priority as number | undefined) ?? -1;
-            const isHighPriority = priority >= 0.5;
-            const shouldExpandBasedOnStyle = responseStyle === 'detailed' || responseStyle === null;
-
-            return {
-              result: item,
-              isExpandToolResults: isHighPriority || shouldExpandBasedOnStyle,
-            };
-          })
+      ? toolResponse!.toolResult.value.filter((item) => {
+          const audience = item.annotations?.audience as string[] | undefined;
+          return !audience || audience.includes('user');
+        })
       : [];
 
   const logs = notifications
-    ?.filter((notification) => notification.message.method === 'notifications/message')
+    ?.filter((notification) => {
+      const message = notification.message as { method?: string };
+      return message.method === 'notifications/message';
+    })
     .map(logToString);
 
   const progress = notifications
-    ?.filter((notification) => notification.message.method === 'notifications/progress')
+    ?.filter((notification) => {
+      const message = notification.message as { method?: string };
+      return message.method === 'notifications/progress';
+    })
     .map(notificationToProgress)
     .reduce((map, item) => {
       const key = item.progressToken;
@@ -250,17 +289,6 @@ function ToolCallView({
 
   const isRenderingProgress =
     loadingStatus === 'loading' && (progressEntries.length > 0 || (logs || []).length > 0);
-
-  // Determine if the main tool call should be expanded
-  const isShouldExpand = (() => {
-    // Always expand if there are high priority results that need to be shown
-    const hasHighPriorityResults = toolResults.some((v) => v.isExpandToolResults);
-
-    // Also expand based on user preference for detailed mode
-    const shouldExpandBasedOnStyle = responseStyle === 'detailed' || responseStyle === null;
-
-    return hasHighPriorityResults || shouldExpandBasedOnStyle;
-  })();
 
   // Function to create a descriptive representation of what the tool is doing
   const getToolDescription = (): string | null => {
@@ -449,7 +477,7 @@ function ToolCallView({
   return (
     <ToolCallExpandable
       isStartExpanded={isRenderingProgress}
-      isForceExpand={isShouldExpand}
+      isForceExpand={false}
       label={
         extensionTooltip ? (
           <TooltipWrapper tooltipContent={extensionTooltip} side="top" align="start">
@@ -461,7 +489,11 @@ function ToolCallView({
       }
     >
       {/* Tool Details */}
-      {isToolDetails && <ToolDetailsView toolCall={toolCall} />}
+      {isToolDetails && (
+        <div className="border-t border-borderSubtle">
+          <ToolDetailsView toolCall={toolCall} isStartExpanded={isExpandToolDetails} />
+        </div>
+      )}
 
       {logs && logs.length > 0 && (
         <div className="border-t border-borderSubtle">
@@ -486,13 +518,11 @@ function ToolCallView({
       {/* Tool Output */}
       {!isCancelledMessage && (
         <>
-          {toolResults.map(({ result, isExpandToolResults }, index) => {
-            return (
-              <div key={index} className={cn('border-t border-borderSubtle')}>
-                <ToolResultView result={result} isStartExpanded={isExpandToolResults} />
-              </div>
-            );
-          })}
+          {toolResults.map((result, index) => (
+            <div key={index} className={cn('border-t border-borderSubtle')}>
+              <ToolResultView result={result} isStartExpanded={false} />
+            </div>
+          ))}
         </>
       )}
     </ToolCallExpandable>
@@ -504,29 +534,21 @@ interface ToolDetailsViewProps {
     name: string;
     arguments: Record<string, unknown>;
   };
+  isStartExpanded: boolean;
 }
 
-function ToolDetailsView({ toolCall }: ToolDetailsViewProps) {
-  // Format arguments as inline text
-  const formatArguments = (args: Record<string, unknown>): string => {
-    const entries = Object.entries(args);
-    if (entries.length === 0) return '';
-
-    return entries
-      .map(([key, value]) => {
-        const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
-        return `${key} - ${valueStr}`;
-      })
-      .join(', ');
-  };
-
-  const argsText = formatArguments(toolCall.arguments);
-
+function ToolDetailsView({ toolCall, isStartExpanded }: ToolDetailsViewProps) {
   return (
-    <div className="pl-4 pr-4 py-2 text-sm font-sans text-text-muted">
-      <span className="opacity-70">Tool Details: </span>
-      <span className="text-text-subtle">{argsText}</span>
-    </div>
+    <ToolCallExpandable
+      label={<span className="pl-4 font-sans text-sm">Tool Details</span>}
+      isStartExpanded={isStartExpanded}
+    >
+      <div className="pr-4 pl-8">
+        {toolCall.arguments && (
+          <ToolCallArguments args={toolCall.arguments as Record<string, ToolCallArgumentValue>} />
+        )}
+      </div>
+    </ToolCallExpandable>
   );
 }
 
@@ -536,81 +558,30 @@ interface ToolResultViewProps {
 }
 
 function ToolResultView({ result, isStartExpanded }: ToolResultViewProps) {
-  const MAX_PREVIEW_LINES = 4;
-  const [isFullyExpanded, setIsFullyExpanded] = useState(false);
+  const hasText = (c: Content): c is Content & { text: string } =>
+    'text' in c && typeof (c as Record<string, unknown>).text === 'string';
 
-  // Count lines and determine if content is large
-  const getContentInfo = () => {
-    if (result.type === 'text' && result.text) {
-      const lines = result.text.split('\n');
-      const isLarge = lines.length > MAX_PREVIEW_LINES;
-      const preview = isLarge ? lines.slice(0, MAX_PREVIEW_LINES).join('\n') : result.text;
-      return { isLarge, preview, totalLines: lines.length, content: result.text };
-    }
-    return { isLarge: false, preview: '', totalLines: 0, content: '' };
+  const hasImage = (c: Content): c is Content & { data: string; mimeType: string } => {
+    if (!('data' in c && 'mimeType' in c)) return false;
+    const mimeType = (c as Record<string, unknown>).mimeType;
+    return typeof mimeType === 'string' && mimeType.startsWith('image');
   };
 
-  const contentInfo = getContentInfo();
-  const shouldShowToggle = contentInfo.isLarge && result.type === 'text';
-  const displayContent =
-    shouldShowToggle && !isFullyExpanded ? contentInfo.preview : contentInfo.content;
+  const hasResource = (c: Content): c is Content & { resource: unknown } => 'resource' in c;
 
   return (
     <ToolCallExpandable
       label={<span className="pl-4 py-1 font-sans text-sm">Output</span>}
       isStartExpanded={isStartExpanded}
     >
-      <div className="pl-4 pr-4 py-2">
-        {result.type === 'text' && result.text && (
-          <>
-            <div className="whitespace-pre-wrap max-w-full overflow-x-auto font-sans text-sm">
-              {displayContent.split('\n').map((line, idx) => {
-                // Apply color coding to each line
-                const colorizedLine = line
-                  // Timestamps
-                  .replace(
-                    /(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/g,
-                    '<span class="text-orange-400">$1</span>'
-                  )
-                  // Log levels
-                  .replace(
-                    /\b(INFO|WARN|WARNING|ERROR|DEBUG|TRACE|FATAL)\b/g,
-                    '<span class="text-green-400 font-semibold">$1</span>'
-                  )
-                  // Keywords with underscores
-                  .replace(/\b(\w+_\w+):/g, '<span class="text-yellow-400">$1</span>:')
-                  // File paths
-                  .replace(/(\/[\/\w.@-]+)/g, '<span class="text-blue-400">$1</span>')
-                  // Port numbers
-                  .replace(/\bport\s+(\d+)/gi, 'port <span class="text-cyan-400">$1</span>')
-                  // Status codes
-                  .replace(/\bstatus:\s*(\d+)/gi, 'status: <span class="text-purple-400">$1</span>')
-                  // Rust module paths
-                  .replace(/(\w+::\w+(?:::\w+)*)/g, '<span class="text-cyan-300">$1</span>');
-
-                return (
-                  <div
-                    key={idx}
-                    className="text-text-subtle leading-tight"
-                    dangerouslySetInnerHTML={{ __html: colorizedLine }}
-                  />
-                );
-              })}
-            </div>
-            {shouldShowToggle && (
-              <Button
-                onClick={() => setIsFullyExpanded(!isFullyExpanded)}
-                variant="ghost"
-                className="mt-2 text-xs text-textSubtle hover:text-textPrimary"
-              >
-                {isFullyExpanded
-                  ? `Show less`
-                  : `Show ${contentInfo.totalLines - MAX_PREVIEW_LINES} more lines...`}
-              </Button>
-            )}
-          </>
+      <div className="pl-4 pr-4 py-4">
+        {hasText(result) && (
+          <MarkdownContent
+            content={result.text}
+            className="whitespace-pre-wrap max-w-full overflow-x-auto"
+          />
         )}
-        {result.type === 'image' && (
+        {hasImage(result) && (
           <img
             src={`data:${result.mimeType};base64,${result.data}`}
             alt="Tool result"
@@ -621,7 +592,7 @@ function ToolResultView({ result, isStartExpanded }: ToolResultViewProps) {
             }}
           />
         )}
-        {result.type === 'resource' && (
+        {hasResource(result) && (
           <pre className="font-sans text-sm">{JSON.stringify(result, null, 2)}</pre>
         )}
       </div>
@@ -639,8 +610,6 @@ function ToolLogsView({
   isStartExpanded?: boolean;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
-  const [isFullyExpanded, setIsFullyExpanded] = useState(false);
-  const MAX_PREVIEW_LOGS = 5;
 
   // Whenever logs update, jump to the newest entry
   useEffect(() => {
@@ -648,9 +617,12 @@ function ToolLogsView({
       boxRef.current.scrollTop = boxRef.current.scrollHeight;
     }
   }, [logs.length]);
-
-  const isLarge = logs.length > MAX_PREVIEW_LOGS;
-  const displayLogs = isLarge && !isFullyExpanded ? logs.slice(0, MAX_PREVIEW_LOGS) : logs;
+  // normally we do not want to put .length on an array in react deps:
+  //
+  // if the objects inside the array change but length doesn't change you want updates
+  //
+  // in this case, this is array of strings which once added do not change so this cuts
+  // down on the possibility of unwanted runs
 
   return (
     <ToolCallExpandable
@@ -671,73 +643,15 @@ function ToolLogsView({
       }
       isStartExpanded={isStartExpanded}
     >
-      <div className="p-2">
-        <div
-          ref={boxRef}
-          className={`flex flex-col items-start space-y-0.5 ${!isFullyExpanded && isLarge ? '' : 'overflow-y-auto max-h-[20rem]'}`}
-        >
-          {displayLogs.map((log, i) => {
-            // Parse log to add colors
-            const stdoutMatch = log.match(/^\[stdout\]\s*(.*)$/);
-            const stderrMatch = log.match(/^\[stderr\]\s*(.*)$/);
-
-            if (stdoutMatch) {
-              return (
-                <span key={i} className="font-sans text-sm">
-                  <span className="text-green-500">[stdout]</span>
-                  <span className="text-textSubtle ml-1">{stdoutMatch[1]}</span>
-                </span>
-              );
-            } else if (stderrMatch) {
-              return (
-                <span key={i} className="font-sans text-sm">
-                  <span className="text-orange-500">[stderr]</span>
-                  <span className="text-textSubtle ml-1">{stderrMatch[1]}</span>
-                </span>
-              );
-            } else {
-              // Enhanced colorization for general logs
-              const colorizedLog = log
-                // Timestamps (HH:MM:SS format)
-                .replace(
-                  /(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/g,
-                  '<span class="text-orange-400">$1</span>'
-                )
-                // Log levels (INFO, WARN, ERROR, DEBUG, etc)
-                .replace(
-                  /\b(INFO|WARN|WARNING|ERROR|DEBUG|TRACE|FATAL)\b/g,
-                  '<span class="text-green-400 font-semibold">$1</span>'
-                )
-                // Keywords like quit_reason, peer_info, etc
-                .replace(/\b(\w+_\w+):/g, '<span class="text-yellow-400">$1</span>:')
-                // File paths
-                .replace(/(\/[\/\w.@-]+)/g, '<span class="text-blue-400">$1</span>')
-                // Port numbers
-                .replace(/\bport\s+(\d+)/gi, 'port <span class="text-cyan-400">$1</span>')
-                // Status codes
-                .replace(/\bstatus:\s*(\d+)/gi, 'status: <span class="text-purple-400">$1</span>')
-                // Rust module paths
-                .replace(/(\w+::\w+(?:::\w+)*)/g, '<span class="text-cyan-300">$1</span>');
-
-              return (
-                <span
-                  key={i}
-                  className="font-sans text-sm text-textSubtle"
-                  dangerouslySetInnerHTML={{ __html: colorizedLog }}
-                />
-              );
-            }
-          })}
-        </div>
-        {isLarge && (
-          <Button
-            onClick={() => setIsFullyExpanded(!isFullyExpanded)}
-            variant="ghost"
-            className="mt-2 text-xs text-textSubtle hover:text-textPrimary"
-          >
-            {isFullyExpanded ? `Show less` : `Show ${logs.length - MAX_PREVIEW_LOGS} more lines...`}
-          </Button>
-        )}
+      <div
+        ref={boxRef}
+        className={`flex flex-col items-start space-y-2 overflow-y-auto p-4 ${working ? 'max-h-[4rem]' : 'max-h-[20rem]'}`}
+      >
+        {logs.map((log, i) => (
+          <span key={i} className="font-sans text-sm text-textSubtle">
+            {log}
+          </span>
+        ))}
       </div>
     </ToolCallExpandable>
   );

@@ -17,6 +17,12 @@ pub struct ToolRouteManager {
     router_disabled_override: Mutex<bool>,
 }
 
+impl Default for ToolRouteManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ToolRouteManager {
     pub fn new() -> Self {
         Self {
@@ -32,9 +38,9 @@ impl ToolRouteManager {
 
     pub async fn record_tool_requests(&self, requests: &[ToolRequest]) {
         let selector = self.router_tool_selector.lock().await.clone();
-        if let Some(selector) = selector {
-            for request in requests {
-                if let Ok(tool_call) = &request.tool_call {
+        for request in requests {
+            if let Ok(tool_call) = &request.tool_call {
+                if let Some(ref selector) = selector {
                     if let Err(e) = selector.record_tool_call(&tool_call.name).await {
                         error!("Failed to record tool call: {}", e);
                     }
@@ -96,9 +102,6 @@ impl ToolRouteManager {
 
         // Wrap selector in Arc for the index manager methods
         let selector_arc = Arc::new(selector);
-
-        // First index platform tools
-        ToolRouterIndexManager::index_platform_tools(&selector_arc, extension_manager).await?;
 
         if reindex_all.unwrap_or(false) {
             let enabled_extensions = extension_manager.list_extensions().await?;

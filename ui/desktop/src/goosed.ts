@@ -1,9 +1,9 @@
+import Electron from 'electron';
+import fs from 'node:fs';
 import { spawn, ChildProcess } from 'child_process';
 import { createServer } from 'net';
 import os from 'node:os';
 import path from 'node:path';
-import fs from 'node:fs';
-import { getBinaryPath } from './utils/pathUtils';
 import log from './utils/logger';
 import { App } from 'electron';
 import { Buffer } from 'node:buffer';
@@ -11,7 +11,6 @@ import { Buffer } from 'node:buffer';
 import { status } from './api';
 import { Client } from './api/client';
 
-// Find an available port to start goosed on
 export const findAvailablePort = (): Promise<number> => {
   return new Promise((resolve, _reject) => {
     const server = createServer();
@@ -27,10 +26,20 @@ export const findAvailablePort = (): Promise<number> => {
 };
 
 // Check if goosed server is ready by polling the status endpoint
-export const checkServerStatus = async (client: Client): Promise<boolean> => {
-  const interval = 100;
-  const maxAttempts = 200;
+export const checkServerStatus = async (client: Client, errorLog: string[]): Promise<boolean> => {
+  const interval = 100; // ms
+  const maxAttempts = 100; // 10s
+
+  const fatal = (line: string) => {
+    const trimmed = line.trim().toLowerCase();
+    return trimmed.startsWith("thread 'main' panicked at") || trimmed.startsWith('error:');
+  };
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (errorLog.some(fatal)) {
+      log.error('Detected fatal error in server logs');
+      return false;
+    }
     try {
       await status({ client, throwOnError: true });
       return true;
@@ -47,7 +56,7 @@ export const checkServerStatus = async (client: Client): Promise<boolean> => {
 const connectToExternalBackend = async (
   workingDir: string,
   port: number = 3000
-): Promise<[number, string, ChildProcess]> => {
+): Promise<[number, string, ChildProcess, string[]]> => {
   log.info(`Using external goosed backend on port ${port}`);
 
   const mockProcess = {
@@ -57,7 +66,7 @@ const connectToExternalBackend = async (
     },
   } as ChildProcess;
 
-  return [port, workingDir, mockProcess];
+  return [port, workingDir, mockProcess, []];
 };
 
 interface GooseProcessEnv {
@@ -75,16 +84,11 @@ interface GooseProcessEnv {
 export const startGoosed = async (
   app: App,
   serverSecret: string,
-  dir: string | null = null,
+  dir: string,
   env: Partial<GooseProcessEnv> = {}
-): Promise<[number, string, ChildProcess]> => {
-  const homeDir = os.homedir();
+): Promise<[number, string, ChildProcess, string[]]> => {
   const isWindows = process.platform === 'win32';
-
-  if (!dir) {
-    dir = homeDir;
-  }
-
+  const homeDir = os.homedir();
   dir = path.resolve(path.normalize(dir));
 
   if (process.env.GOOSE_EXTERNAL_BACKEND) {
@@ -94,65 +98,15 @@ export const startGoosed = async (
     return connectToExternalBackend(dir, externalPort);
   }
 
-  // Validate that the directory actually exists and is a directory
-  try {
-    const stats = fs.lstatSync(dir);
+  let goosedPath = getGoosedBinaryPath(app);
 
-    // Reject symlinks for security - they could point outside intended directories
-    if (stats.isSymbolicLink()) {
-      log.warn(`Provided path is a symlink, falling back to home directory for security`);
-      dir = homeDir;
-    } else if (!stats.isDirectory()) {
-      log.warn(`Provided path is not a directory, falling back to home directory`);
-      dir = homeDir;
-    }
-  } catch {
-    log.warn(`Directory does not exist, falling back to home directory`);
-    dir = homeDir;
-  }
-
-  // Security check: Ensure the directory path doesn't contain suspicious characters
-  if (dir.includes('..') || dir.includes(';') || dir.includes('|') || dir.includes('&')) {
-    throw new Error(`Invalid directory path: ${dir}`);
-  }
-
-  // Get the goosed binary path using the shared utility
-  let goosedPath = getBinaryPath(app, 'goosed');
-
-  // Security validation: Ensure the binary path is safe
   const resolvedGoosedPath = path.resolve(goosedPath);
 
-  // Validate that the binary path doesn't contain suspicious characters or sequences
-  if (
-    resolvedGoosedPath.includes('..') ||
-    resolvedGoosedPath.includes(';') ||
-    resolvedGoosedPath.includes('|') ||
-    resolvedGoosedPath.includes('&') ||
-    resolvedGoosedPath.includes('`') ||
-    resolvedGoosedPath.includes('$')
-  ) {
-    throw new Error(`Invalid binary path detected: ${resolvedGoosedPath}`);
-  }
-
-  // Ensure the binary path is within expected application directories
-  const appPath = app.getAppPath();
-  const resourcesPath = process.resourcesPath;
-  const currentWorkingDir = process.cwd();
-
-  const isValidPath =
-    resolvedGoosedPath.startsWith(path.resolve(appPath)) ||
-    resolvedGoosedPath.startsWith(path.resolve(resourcesPath)) ||
-    resolvedGoosedPath.startsWith(path.resolve(currentWorkingDir));
-
-  if (!isValidPath) {
-    throw new Error(`Binary path is outside of allowed directories: ${resolvedGoosedPath}`);
-  }
-
   const port = await findAvailablePort();
+  const stderrLines: string[] = [];
 
   log.info(`Starting goosed from: ${resolvedGoosedPath} on port ${port} in dir ${dir}`);
 
-  // Define additional environment variables
   const additionalEnv: GooseProcessEnv = {
     // Set HOME for UNIX-like systems
     HOME: homeDir,
@@ -164,25 +118,13 @@ export const startGoosed = async (
     LOCALAPPDATA: process.env.LOCALAPPDATA || path.join(homeDir, 'AppData', 'Local'),
     // Set PATH to include the binary directory
     PATH: `${path.dirname(resolvedGoosedPath)}${path.delimiter}${process.env.PATH || ''}`,
-    // start with the port specified
     GOOSE_PORT: String(port),
     GOOSE_SERVER__SECRET_KEY: serverSecret,
     // Add any additional environment variables passed in
     ...env,
   } as GooseProcessEnv;
 
-  // Merge parent environment with additional environment variables
   const processEnv: GooseProcessEnv = { ...process.env, ...additionalEnv } as GooseProcessEnv;
-
-  // Add detailed logging for troubleshooting
-  log.info(`Process platform: ${process.platform}`);
-  log.info(`Process cwd: ${process.cwd()}`);
-  log.info(`Target working directory: ${dir}`);
-  log.info(`Environment HOME: ${processEnv.HOME}`);
-  log.info(`Environment USERPROFILE: ${processEnv.USERPROFILE}`);
-  log.info(`Environment APPDATA: ${processEnv.APPDATA}`);
-  log.info(`Environment LOCALAPPDATA: ${processEnv.LOCALAPPDATA}`);
-  log.info(`Environment PATH: ${processEnv.PATH}`);
 
   // Ensure proper executable path on Windows
   if (isWindows && !resolvedGoosedPath.toLowerCase().endsWith('.exe')) {
@@ -222,9 +164,8 @@ export const startGoosed = async (
   log.info('Spawn options:', JSON.stringify(safeSpawnOptions, null, 2));
 
   // Security: Use only hardcoded, safe arguments
-  const safeArgs = ['agent']; // Only allow the 'agent' argument
+  const safeArgs = ['agent'];
 
-  // Spawn the goosed process with validated inputs
   const goosedProcess: ChildProcess = spawn(goosedPath, safeArgs, spawnOptions);
 
   // Only unref on Windows to allow it to run independently of the parent
@@ -237,7 +178,14 @@ export const startGoosed = async (
   });
 
   goosedProcess.stderr?.on('data', (data: Buffer) => {
-    log.error(`goosed stderr for port ${port} and dir ${dir}: ${data.toString()}`);
+    const lines = data
+      .toString()
+      .split('\n')
+      .filter((l) => l.trim());
+    lines.forEach((line) => {
+      log.error(`goosed stderr for port ${port} and dir ${dir}: ${line}`);
+      stderrLines.push(line);
+    });
   });
 
   goosedProcess.on('close', (code: number | null) => {
@@ -269,5 +217,44 @@ export const startGoosed = async (
   });
 
   log.info(`Goosed server successfully started on port ${port}`);
-  return [port, dir, goosedProcess];
+  return [port, dir, goosedProcess, stderrLines];
+};
+
+const getGoosedBinaryPath = (app: Electron.App): string => {
+  let executableName = process.platform === 'win32' ? 'goosed.exe' : 'goosed';
+
+  let possiblePaths: string[];
+  if (!app.isPackaged) {
+    possiblePaths = [
+      path.join(process.cwd(), 'src', 'bin', executableName),
+      path.join(process.cwd(), 'bin', executableName),
+      path.join(process.cwd(), '..', '..', 'target', 'debug', executableName),
+      path.join(process.cwd(), '..', '..', 'target', 'release', executableName),
+    ];
+  } else {
+    possiblePaths = [path.join(process.resourcesPath, 'bin', executableName)];
+  }
+
+  for (const binPath of possiblePaths) {
+    try {
+      const resolvedPath = path.resolve(binPath);
+
+      if (fs.existsSync(resolvedPath)) {
+        const stats = fs.statSync(resolvedPath);
+        if (stats.isFile()) {
+          return resolvedPath;
+        } else {
+          log.error(`Path exists but is not a regular file: ${resolvedPath}`);
+        }
+      }
+    } catch (error) {
+      log.error(`Error checking path ${binPath}:`, error);
+    }
+  }
+
+  throw new Error(
+    `Could not find ${executableName} binary in any of the expected locations: ${possiblePaths.join(
+      ', '
+    )}`
+  );
 };

@@ -3,9 +3,8 @@ import { useForm } from '@tanstack/react-form';
 import { Recipe, generateDeepLink, Parameter } from '../../recipe';
 import { Geese } from '../icons/Geese';
 import Copy from '../icons/Copy';
-import { Check, Save, Calendar, X, Play } from 'lucide-react';
+import { Check, Save, X, Play } from 'lucide-react';
 import { ExtensionConfig } from '../ConfigContext';
-import { ScheduleFromRecipeModal } from '../schedule/ScheduleFromRecipeModal';
 import { Button } from '../ui/button';
 
 import { RecipeFormFields } from './shared/RecipeFormFields';
@@ -79,7 +78,6 @@ export default function CreateEditRecipeModal({
     });
   }, [form]);
   const [copied, setCopied] = useState(false);
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Initialize selected extensions for the recipe
@@ -295,7 +293,7 @@ export default function CreateEditRecipeModal({
     try {
       const recipe = getCurrentRecipe();
 
-      await saveRecipe(recipe, recipeId);
+      let saved_recipe_id = await saveRecipe(recipe, recipeId);
 
       // Close modal first
       onClose(true);
@@ -306,9 +304,8 @@ export default function CreateEditRecipeModal({
         undefined,
         undefined,
         undefined,
-        recipe,
         undefined,
-        recipeId ?? undefined
+        saved_recipe_id
       );
 
       toastSuccess({
@@ -414,16 +411,6 @@ export default function CreateEditRecipeModal({
 
           <div className="flex gap-3">
             <Button
-              onClick={() => setIsScheduleModalOpen(true)}
-              disabled={!requiredFieldsAreFilled()}
-              variant="outline"
-              size="default"
-              className="inline-flex items-center justify-center gap-2 px-4 py-2"
-            >
-              <Calendar className="w-4 h-4" />
-              Create Schedule
-            </Button>
-            <Button
               onClick={handleSaveRecipeClick}
               disabled={!requiredFieldsAreFilled() || isSaving}
               variant="outline"
@@ -446,26 +433,6 @@ export default function CreateEditRecipeModal({
           </div>
         </div>
       </div>
-
-      <ScheduleFromRecipeModal
-        isOpen={isScheduleModalOpen}
-        onClose={() => setIsScheduleModalOpen(false)}
-        recipe={getCurrentRecipe()}
-        onCreateSchedule={(deepLink) => {
-          // Open the schedules view with the deep link pre-filled
-          window.electron.createChatWindow(
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            'schedules',
-            undefined
-          );
-          // Store the deep link in localStorage for the schedules view to pick up
-          localStorage.setItem('pendingScheduleDeepLink', deepLink);
-        }}
-      />
     </div>
   );
 }

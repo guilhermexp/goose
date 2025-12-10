@@ -14,22 +14,21 @@
  * - Configurable batch size and delay
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Message } from '../types/message';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Message } from '../api';
 import GooseMessage from './GooseMessage';
 import UserMessage from './UserMessage';
-import { CompactionMarker } from './context_management/CompactionMarker';
-import { useContextManager } from './context_management/ContextManager';
-import { NotificationEvent } from '../hooks/useMessageStream';
+import { SystemNotificationInline } from './context_management/SystemNotificationInline';
+import { NotificationEvent } from '../types/message';
 import LoadingGoose from './LoadingGoose';
 import { ChatType } from '../types/chat';
+import { identifyConsecutiveToolCalls, isInChain } from '../utils/toolCallChaining';
 
 interface ProgressiveMessageListProps {
   messages: Message[];
   chat?: Pick<ChatType, 'sessionId' | 'messageHistoryIndex'>;
   toolCallNotifications?: Map<string, NotificationEvent[]>; // Make optional
   append?: (value: string) => void; // Make optional
-  appendMessage?: (message: Message) => void; // Make optional
   isUserMessage: (message: Message) => boolean;
   batchSize?: number;
   batchDelay?: number;
@@ -39,6 +38,10 @@ interface ProgressiveMessageListProps {
   isStreamingMessage?: boolean; // Whether messages are currently being streamed
   onMessageUpdate?: (messageId: string, newContent: string) => void;
   onRenderingComplete?: () => void; // Callback when all messages are rendered
+  submitElicitationResponse?: (
+    elicitationId: string,
+    userData: Record<string, unknown>
+  ) => Promise<void>;
 }
 
 export default function ProgressiveMessageList({
@@ -46,7 +49,6 @@ export default function ProgressiveMessageList({
   chat,
   toolCallNotifications = new Map(),
   append = () => {},
-  appendMessage = () => {},
   isUserMessage,
   batchSize = 20,
   batchDelay = 20,
@@ -55,6 +57,7 @@ export default function ProgressiveMessageList({
   isStreamingMessage = false, // Whether messages are currently being streamed
   onMessageUpdate,
   onRenderingComplete,
+  submitElicitationResponse,
 }: ProgressiveMessageListProps) {
   const [renderedCount, setRenderedCount] = useState(() => {
     // Initialize with either all messages (if small) or first batch (if large)
@@ -68,17 +71,12 @@ export default function ProgressiveMessageList({
   const hasOnlyToolResponses = (message: Message) =>
     message.content.every((c) => c.type === 'toolResponse');
 
-  // Try to use context manager, but don't require it for session history
-  let hasCompactionMarker: ((message: Message) => boolean) | undefined;
-
-  try {
-    const contextManager = useContextManager();
-    hasCompactionMarker = contextManager.hasCompactionMarker;
-  } catch {
-    // Context manager not available (e.g., in session history view)
-    // This is fine, we'll just skip compaction marker functionality
-    hasCompactionMarker = undefined;
-  }
+  const hasInlineSystemNotification = (message: Message): boolean => {
+    return message.content.some(
+      (content) =>
+        content.type === 'systemNotification' && content.notificationType === 'inlineMessage'
+    );
+  };
 
   // Simple progressive loading - start immediately when component mounts if needed
   useEffect(() => {
@@ -167,12 +165,17 @@ export default function ProgressiveMessageList({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLoading, messages.length]);
 
+  // Detect tool call chains
+  const toolCallChains = useMemo(() => identifyConsecutiveToolCalls(messages), [messages]);
+
   // Render messages up to the current rendered count
   const renderMessages = useCallback(() => {
     const messagesToRender = messages.slice(0, renderedCount);
     return messagesToRender
       .map((message, index) => {
-        // Use custom render function if provided
+        if (!message.metadata.userVisible) {
+          return null;
+        }
         if (renderMessage) {
           return renderMessage(message, index);
         }
@@ -185,46 +188,48 @@ export default function ProgressiveMessageList({
           return null;
         }
 
+        // System notifications are never user messages, handle them first
+        if (hasInlineSystemNotification(message)) {
+          return (
+            <div
+              key={message.id ?? `msg-${index}-${message.created}`}
+              className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} assistant`}
+              data-testid="message-container"
+            >
+              <SystemNotificationInline message={message} />
+            </div>
+          );
+        }
+
         const isUser = isUserMessage(message);
+        const messageIsInChain = isInChain(index, toolCallChains);
 
         return (
           <div
-            key={message.id && `${message.id}-${message.content.length}`}
-            className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} ${isUser ? 'user' : 'assistant'}`}
+            key={message.id ?? `msg-${index}-${message.created}`}
+            className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} ${isUser ? 'user' : 'assistant'} ${messageIsInChain ? 'in-chain' : ''}`}
             data-testid="message-container"
           >
             {isUser ? (
-              <>
-                {hasCompactionMarker && hasCompactionMarker(message) ? (
-                  <CompactionMarker message={message} />
-                ) : (
-                  !hasOnlyToolResponses(message) && (
-                    <UserMessage message={message} onMessageUpdate={onMessageUpdate} />
-                  )
-                )}
-              </>
+              !hasOnlyToolResponses(message) && (
+                <UserMessage message={message} onMessageUpdate={onMessageUpdate} />
+              )
             ) : (
-              <>
-                {hasCompactionMarker && hasCompactionMarker(message) ? (
-                  <CompactionMarker message={message} />
-                ) : (
-                  <GooseMessage
-                    sessionId={chat.sessionId}
-                    messageHistoryIndex={chat.messageHistoryIndex}
-                    message={message}
-                    messages={messages}
-                    append={append}
-                    appendMessage={appendMessage}
-                    toolCallNotifications={toolCallNotifications}
-                    isStreaming={
-                      isStreamingMessage &&
-                      !isUser &&
-                      index === messagesToRender.length - 1 &&
-                      message.role === 'assistant'
-                    }
-                  />
-                )}
-              </>
+              <GooseMessage
+                sessionId={chat.sessionId}
+                messageHistoryIndex={chat.messageHistoryIndex}
+                message={message}
+                messages={messages}
+                append={append}
+                toolCallNotifications={toolCallNotifications}
+                isStreaming={
+                  isStreamingMessage &&
+                  !isUser &&
+                  index === messagesToRender.length - 1 &&
+                  message.role === 'assistant'
+                }
+                submitElicitationResponse={submitElicitationResponse}
+              />
             )}
           </div>
         );
@@ -237,11 +242,11 @@ export default function ProgressiveMessageList({
     isUserMessage,
     chat,
     append,
-    appendMessage,
     toolCallNotifications,
     isStreamingMessage,
     onMessageUpdate,
-    hasCompactionMarker,
+    toolCallChains,
+    submitElicitationResponse,
   ]);
 
   return (

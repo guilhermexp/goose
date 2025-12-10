@@ -49,7 +49,7 @@
 :root {
   /* fonts */
   --font-sans: 'Cash Sans', sans-serif;
-  --font-mono: 'Cash Sans Mono', monospace;
+  --font-mono: monospace;
 
   /* theming accents */
   --background-accent: var(--color-accent);
@@ -88,14 +88,14 @@
 
   --ring: var(--border-strong);
 
-  --sidebar: rgba(15, 15, 15, 0.9);
+  --sidebar: var(--background-muted);
   --sidebar-foreground: var(--text-default);
   --sidebar-primary: var(--background-accent);
   --sidebar-primary-foreground: var(--text-inverse);
-  --sidebar-accent: rgba(255, 255, 255, 0.15);
+  --sidebar-accent: var(--background-muted);
   --sidebar-accent-foreground: var(--text-default);
-  --sidebar-border: rgba(255, 255, 255, 0.1);
-  --sidebar-ring: rgba(255, 255, 255, 0.1);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--border-default);
 
   /* custom shadow */
 
@@ -112,10 +112,10 @@
   --text-on-accent: var(--color-black);
 
   /* semantic */
-  --background-app: var(--color-black);
-  --background-default: var(--color-black);
-  --background-card: var(--color-black);
-  --background-muted: rgba(15, 15, 15, 0.8);
+  --background-app: var(--color-neutral-950);
+  --background-default: var(--color-neutral-950);
+  --background-card: var(--color-neutral-950);
+  --background-muted: var(--color-neutral-800);
   --background-medium: var(--color-neutral-700);
   --background-strong: var(--color-neutral-600);
   --background-inverse: var(--color-neutral-200);
@@ -142,14 +142,14 @@
 
   --ring: var(--border-strong);
 
-  --sidebar: rgba(15, 15, 15, 0.9);
+  --sidebar: var(--background-muted);
   --sidebar-foreground: var(--text-default);
   --sidebar-primary: var(--background-accent);
   --sidebar-primary-foreground: var(--text-inverse);
-  --sidebar-accent: rgba(255, 255, 255, 0.15);
+  --sidebar-accent: var(--background-muted);
   --sidebar-accent-foreground: var(--text-default);
-  --sidebar-border: rgba(255, 255, 255, 0.1);
-  --sidebar-ring: rgba(255, 255, 255, 0.1);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--border-default);
 
   --shadow-default:
     0px 12px 32px 0px rgba(0, 0, 0, 0.2), 0px 8px 16px 0px rgba(0, 0, 0, 0.15),
@@ -192,7 +192,7 @@
   --color-text-info: var(--text-info);
 
   --font-sans: 'Cash Sans', sans-serif;
-  --font-mono: 'Cash Sans Mono', monospace;
+  --font-mono: monospace;
   --font-serif: serif;
 
   --color-ring: var(--ring);
@@ -258,28 +258,6 @@
   font-style: normal;
 }
 
-@font-face {
-  font-family: 'Cash Sans Mono';
-  src:
-    url(https://cash-f.squarecdn.com/static/fonts/cashsans/woff2/CashSansMono-Regular.woff2)
-      format('woff2'),
-    url(https://cash-f.squarecdn.com/static/fonts/cashsans/woff/CashSansMono-Regular.woff)
-      format('woff');
-  font-weight: 500;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: 'Cash Sans Mono';
-  src:
-    url(https://cash-f.squarecdn.com/static/fonts/cashsans/woff2/CashSansMono-Light.woff2)
-      format('woff2'),
-    url(https://cash-f.squarecdn.com/static/fonts/cashsans/woff/CashSansMono-Light.woff)
-      format('woff');
-  font-weight: 300;
-  font-style: normal;
-}
-
 /* animations */
 @keyframes appear {
   from {
@@ -334,16 +312,6 @@
   will-change: transform, opacity;
 }
 
-/* Glass effect for sidebar */
-[data-slot='sidebar-container'] {
-  background: rgba(15, 15, 15, 0.95) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
-  border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
-}
-
-
-
 .sidebar-item:nth-child(1) {
   animation-delay: 0.05s;
 }
@@ -379,36 +347,28 @@
   }
 }
 
-/* Toast close button styling - Minimalista */
+/* Toast close button styling */
 .Toastify__close-button {
-  color: rgba(255, 255, 255, 0.5) !important;
-  opacity: 0.6;
-  align-self: flex-start;
-  margin-top: 0px;
-  margin-right: 0px;
-  padding: 1px;
-  border-radius: 3px;
+  color: var(--text-prominent-inverse) !important;
+  opacity: 0.7;
+  align-self: center;
+  margin-top: 0;
+  margin-right: 8px;
+  padding: 4px;
+  border-radius: 4px;
   transition:
     opacity 0.2s ease,
-    background-color 0.2s ease,
-    transform 0.2s ease;
-  font-size: 8px;
-  width: 12px;
-  height: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    background-color 0.2s ease;
 }
 
 .Toastify__close-button:hover {
   opacity: 1;
-  background-color: rgba(255, 255, 255, 0.15);
-  transform: scale(1.1);
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .Toastify__close-button:focus {
-  outline: 1px solid rgba(255, 255, 255, 0.2);
-  outline-offset: 1px;
+  outline: 2px solid var(--color-block-teal);
+  outline-offset: 2px;
 }
 
 /* Ensure close button is visible on all toast types */
@@ -417,105 +377,7 @@
 .Toastify__toast--info .Toastify__close-button,
 .Toastify__toast--warning .Toastify__close-button,
 .Toastify__toast--default .Toastify__close-button {
-  color: var(--text-on-accent) !important;
-}
-
-/* Toast container positioning - sobrepostos */
-.Toastify__toast-container {
-  top: 16px !important;
-  right: 16px !important;
-  width: 200px !important;
-}
-
-/* Toast animation suave */
-@keyframes slideInRight {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes slideOutRight {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-}
-
-.Toastify__toast {
-  animation: slideInRight 0.3s ease-out !important;
-}
-
-.Toastify__toast--close {
-  animation: slideOutRight 0.2s ease-out !important;
-}
-
-/* Toast styling - Minimalista sem background */
-.Toastify__toast-container .Toastify__toast {
-  background: rgba(0, 0, 0, 0.5) !important;
-  background-color: rgba(0, 0, 0, 0.5) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
-  color: #ffffff !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  border-radius: 6px !important;
-  padding: 6px 10px !important;
-  box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.3) !important;
-  min-height: 32px !important;
-  font-family: var(--font-sans) !important;
-  font-size: 11px !important;
-}
-
-.Toastify__toast-container .Toastify__toast--success,
-.Toastify__toast-container .Toastify__toast--error,
-.Toastify__toast-container .Toastify__toast--info,
-.Toastify__toast-container .Toastify__toast--warning,
-.Toastify__toast-container .Toastify__toast--default {
-  background: rgba(0, 0, 0, 0.5) !important;
-  background-color: rgba(0, 0, 0, 0.5) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
-  color: #ffffff !important;
-}
-
-/* Success toast - borda sutil */
-.Toastify__toast-container .Toastify__toast--success {
-  border-left: 2px solid rgba(255, 255, 255, 0.25) !important;
-}
-
-/* Remove ícone padrão colorido do toastify */
-.Toastify__toast-container .Toastify__toast-icon {
-  display: none !important;
-}
-
-/* Estilo do texto dentro do toast */
-.Toastify__toast-container .Toastify__toast strong {
-  color: #ffffff !important;
-  font-weight: 600 !important;
-  font-size: 12px !important;
-  display: block !important;
-  margin-bottom: 2px !important;
-  letter-spacing: 0.02em !important;
-}
-
-.Toastify__toast-container .Toastify__toast div {
-  color: rgba(255, 255, 255, 0.7) !important;
-  font-size: 10px !important;
-  line-height: 1.3 !important;
-}
-
-/* Remove body do toast (que pode ter background) */
-.Toastify__toast-container .Toastify__toast-body {
-  color: #ffffff !important;
-  padding: 0 !important;
+  color: var(--text-prominent-inverse) !important;
 }
 
 .animate-fade-slide-up {
@@ -638,7 +500,7 @@ body {
 .bg-inline-code {
   border-radius: 4px;
   color: var(--color-neutral-200);
-  font-family: 'Cash Sans Mono', monospace;
+  font-family: monospace;
   font-size: 12px;
   font-style: normal;
   font-weight: 400;
@@ -671,7 +533,7 @@ p > code.bg-inline-code {
   scrollbar-width: thin;
 }
 
-.assistant:has(+ .user) .goose-message {
+.assistant:has(+ .user):not(.in-chain) .goose-message {
   padding-bottom: 24px;
 }
 
@@ -884,24 +746,33 @@ p > code.bg-inline-code {
   animation: shimmer 6s ease-in-out infinite;
 }
 
-/* FORÇA MÁXIMA - Toast preto minimalista */
-.Toastify__toast-container > .Toastify__toast,
-.Toastify__toast-container > .Toastify__toast--success,
-.Toastify__toast-container > .Toastify__toast--error,
-.Toastify__toast-container > .Toastify__toast--info,
-.Toastify__toast-container > .Toastify__toast--warning,
-.Toastify__toast-container > .Toastify__toast--default,
-div.Toastify__toast-container div.Toastify__toast {
-  background: rgba(0, 0, 0, 0.6) !important;
-  background-color: rgba(0, 0, 0, 0.6) !important;
-  color: #ffffff !important;
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+/* KaTeX Math Rendering */
+
+.prose .katex {
+  font-size: 1.05em;
+  color: inherit;
 }
 
-/* Força texto branco */
-.Toastify__toast-container .Toastify__toast strong,
-.Toastify__toast-container .Toastify__toast div,
-.Toastify__toast-container .Toastify__toast span,
-.Toastify__toast-container .Toastify__toast p {
-  color: #ffffff !important;
+.katex-display {
+  margin: 0.75em 0;
+  padding: 1em;
+  background-color: var(--background-muted);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  text-align: center;
+}
+
+.katex-display .katex {
+  color: var(--color-neutral-800);
+}
+
+.dark .katex-display .katex {
+  color: #e6e6e6;
+}
+
+.katex-error {
+  color: var(--text-danger);
 }

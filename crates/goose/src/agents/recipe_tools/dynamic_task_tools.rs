@@ -6,78 +6,116 @@ use crate::agents::extension::ExtensionConfig;
 use crate::agents::subagent_execution_tool::tasks_manager::TasksManager;
 use crate::agents::subagent_execution_tool::{
     lib::ExecutionMode,
-    task_types::{Task, TaskType},
+    task_types::{Task, TaskPayload},
 };
 use crate::agents::tool_execution::ToolCallResult;
+use crate::config::GooseMode;
 use crate::recipe::{Recipe, RecipeBuilder};
+use crate::session::SessionManager;
 use anyhow::{anyhow, Result};
 use rmcp::model::{Content, ErrorCode, ErrorData, Tool, ToolAnnotations};
-use rmcp::object;
+use rmcp::schemars::{schema_for, JsonSchema};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::borrow::Cow;
 
 pub const DYNAMIC_TASK_TOOL_NAME_PREFIX: &str = "dynamic_task__create_task";
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CreateDynamicTaskParams {
+    /// Array of tasks. Each task must have either 'instructions' OR 'prompt' field (at least one is required).
+    #[schemars(length(min = 1))]
+    pub task_parameters: Vec<TaskParameter>,
+
+    /// How to execute multiple tasks (default: parallel for multiple tasks, sequential for single task)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<String>")]
+    pub execution_mode: Option<ExecutionModeParam>,
+}
+
+/// Execution mode for tasks
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum ExecutionModeParam {
+    Sequential,
+    Parallel,
+}
+
+impl From<ExecutionModeParam> for ExecutionMode {
+    fn from(mode: ExecutionModeParam) -> Self {
+        match mode {
+            ExecutionModeParam::Sequential => ExecutionMode::Sequential,
+            ExecutionModeParam::Parallel => ExecutionMode::Parallel,
+        }
+    }
+}
+
+type JsonObject = serde_json::Map<String, Value>;
+
+/// Parameters for a single task
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TaskParameter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<JsonObject>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<JsonObject>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<Vec<JsonObject>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<JsonObject>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<JsonObject>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activities: Option<Vec<String>>,
+
+    /// If true, return only the last message from the subagent (default: false, returns full conversation)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_last_only: Option<bool>,
+}
+
+pub fn should_enabled_subagents(model_name: &str) -> bool {
+    let config = crate::config::Config::global();
+    let is_autonomous = config.get_goose_mode().unwrap_or(GooseMode::Auto) == GooseMode::Auto;
+    if !is_autonomous {
+        return false;
+    }
+    if model_name.starts_with("gemini") {
+        return false;
+    }
+    true
+}
+
 pub fn create_dynamic_task_tool() -> Tool {
+    let schema = schema_for!(CreateDynamicTaskParams);
+    let schema_value =
+        serde_json::to_value(schema).expect("Failed to serialize CreateDynamicTaskParams schema");
+
+    let input_schema = schema_value
+        .as_object()
+        .expect("Schema should be an object")
+        .clone();
+
     Tool::new(
         DYNAMIC_TASK_TOOL_NAME_PREFIX.to_string(),
-        "Create tasks with instructions or prompt. For simple tasks, only include the instructions field. Extensions control: omit field = use all current extensions; empty array [] = no extensions; array with names = only those extensions. Specify extensions as shortnames (the prefixes for your tools). Specify return_last_only as true and have your subagent summarize its work in its last message to conserve your own context. Optional: title, description, extensions, settings, retry, response schema, context, activities. Arrays for multiple tasks.".to_string(),
-        object!({
-            "type": "object",
-            "properties": {
-                "task_parameters": {
-                    "type": "array",
-                    "description": "Array of tasks. Each task must have either 'instructions' OR 'prompt' field (at least one is required).",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            // Either instructions or prompt is required (validated at runtime)
-                            "instructions": {
-                                "type": "string",
-                                "description": "Task instructions (required if prompt is not provided)"
-                            },
-                            "prompt": {
-                                "type": "string",
-                                "description": "Initial prompt (required if instructions is not provided)"
-                            },
-                            // Optional - auto-generated if not provided
-                            "title": {"type": "string"},
-                            "description": {"type": "string"},
-                            "extensions": {
-                                "type": "array",
-                                "items": {"type": "object"}
-                            },
-                            "settings": {"type": "object"},
-                            "parameters": {
-                                "type": "array",
-                                "items": {"type": "object"}
-                            },
-                            "response": {"type": "object"},
-                            "retry": {"type": "object"},
-                            "context": {
-                                "type": "array",
-                                "items": {"type": "string"}
-                            },
-                            "activities": {
-                                "type": "array",
-                                "items": {"type": "string"}
-                            },
-                            "return_last_only": {
-                                "type": "boolean",
-                                "description": "If true, return only the last message from the subagent (default: false, returns full conversation)"
-                            }
-                        }
-                    },
-                    "minItems": 1
-                },
-                "execution_mode": {
-                    "type": "string",
-                    "enum": ["sequential", "parallel"],
-                    "description": "How to execute multiple tasks (default: parallel for multiple tasks, sequential for single task)"
-                }
-            },
-            "required": ["task_parameters"]
-        })
+        "Create tasks with instructions or prompt. For simple tasks, only include the instructions field. Extensions control: omit field = use all current extensions; empty array [] = no extensions; array with names = only those extensions. Specify extensions as shortnames (the prefixes for your tools). Specify return_last_only as true and have your subagent summarize its work in its last message to conserve your own context. Optional: title, description, extensions, settings, retry, response schema, activities. Arrays for multiple tasks.".to_string(),
+        input_schema,
     ).annotate(ToolAnnotations {
         title: Some("Create Dynamic Tasks".to_string()),
         read_only_hint: Some(false),
@@ -188,7 +226,6 @@ pub fn task_params_to_inline_recipe(
     builder = apply_if_ok(builder, task_param.get("settings"), RecipeBuilder::settings);
     builder = apply_if_ok(builder, task_param.get("response"), RecipeBuilder::response);
     builder = apply_if_ok(builder, task_param.get("retry"), RecipeBuilder::retry);
-    builder = apply_if_ok(builder, task_param.get("context"), RecipeBuilder::context);
     builder = apply_if_ok(
         builder,
         task_param.get("activities"),
@@ -240,6 +277,7 @@ pub async fn create_dynamic_task(
     params: Value,
     tasks_manager: &TasksManager,
     loaded_extensions: Vec<String>,
+    parent_working_dir: &std::path::Path,
 ) -> ToolCallResult {
     let task_params_array = extract_task_parameters(&params);
 
@@ -257,30 +295,38 @@ pub async fn create_dynamic_task(
         // All tasks must use the new inline recipe path
         match task_params_to_inline_recipe(task_param, &loaded_extensions) {
             Ok(recipe) => {
-                let recipe_json = match serde_json::to_value(&recipe) {
-                    Ok(json) => json,
-                    Err(e) => {
-                        return ToolCallResult::from(Err(ErrorData {
-                            code: ErrorCode::INTERNAL_ERROR,
-                            message: Cow::from(format!("Failed to serialize recipe: {}", e)),
-                            data: None,
-                        }));
-                    }
-                };
-
                 // Extract return_last_only flag if present
                 let return_last_only = task_param
                     .get("return_last_only")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
 
+                // Create a session for this task - use its ID as the task ID
+                let session = match SessionManager::create_session(
+                    parent_working_dir.to_path_buf(),
+                    "Subagent task".to_string(),
+                    crate::session::session_manager::SessionType::SubAgent,
+                )
+                .await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return ToolCallResult::from(Err(ErrorData {
+                            code: ErrorCode::INTERNAL_ERROR,
+                            message: Cow::from(format!("Failed to create session: {}", e)),
+                            data: None,
+                        }));
+                    }
+                };
+
                 let task = Task {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    task_type: TaskType::InlineRecipe,
-                    payload: json!({
-                        "recipe": recipe_json,
-                        "return_last_only": return_last_only
-                    }),
+                    id: session.id,
+                    payload: TaskPayload {
+                        recipe,
+                        return_last_only,
+                        sequential_when_repeated: false,
+                        parameter_values: None,
+                    },
                 };
                 tasks.push(task);
             }

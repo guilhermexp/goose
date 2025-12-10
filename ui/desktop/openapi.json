@@ -10,20 +10,20 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "1.9.0"
+    "version": "1.16.0"
   },
   "paths": {
-    "/agent/add_sub_recipes": {
+    "/action-required/tool-confirmation": {
       "post": {
         "tags": [
-          "super::routes::agent"
+          "super::routes::action_required"
         ],
-        "operationId": "add_sub_recipes",
+        "operationId": "confirm_tool_action",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AddSubRecipesRequest"
+                "$ref": "#/components/schemas/ConfirmToolActionRequest"
               }
             }
           },
@@ -31,35 +31,33 @@
         },
         "responses": {
           "200": {
-            "description": "Added sub recipes to agent successfully",
+            "description": "Tool confirmation action is confirmed",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AddSubRecipesResponse"
-                }
+                "schema": {}
               }
             }
           },
           "401": {
             "description": "Unauthorized - invalid secret key"
           },
-          "424": {
-            "description": "Agent not initialized"
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
     },
-    "/agent/prompt": {
+    "/agent/add_extension": {
       "post": {
         "tags": [
           "super::routes::agent"
         ],
-        "operationId": "extend_prompt",
+        "operationId": "agent_add_extension",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ExtendPromptRequest"
+                "$ref": "#/components/schemas/AddExtensionRequest"
               }
             }
           },
@@ -67,11 +65,11 @@
         },
         "responses": {
           "200": {
-            "description": "Extended system prompt successfully",
+            "description": "Extension added",
             "content": {
-              "application/json": {
+              "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ExtendPromptResponse"
+                  "type": "string"
                 }
               }
             }
@@ -81,6 +79,48 @@
           },
           "424": {
             "description": "Agent not initialized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agent/remove_extension": {
+      "post": {
+        "tags": [
+          "super::routes::agent"
+        ],
+        "operationId": "agent_remove_extension",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveExtensionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Extension removed",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid secret key"
+          },
+          "424": {
+            "description": "Agent not initialized"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
@@ -124,45 +164,6 @@
         }
       }
     },
-    "/agent/session_config": {
-      "post": {
-        "tags": [
-          "super::routes::agent"
-        ],
-        "operationId": "update_session_config",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SessionConfigRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Session config updated successfully",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - invalid secret key"
-          },
-          "424": {
-            "description": "Agent not initialized"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/agent/start": {
       "post": {
         "tags": [
@@ -191,13 +192,27 @@
             }
           },
           "400": {
-            "description": "Bad request - invalid working directory"
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized - invalid secret key"
           },
           "500": {
-            "description": "Internal server error"
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -251,6 +266,35 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agent/update_from_session": {
+      "post": {
+        "tags": [
+          "super::routes::agent"
+        ],
+        "operationId": "update_from_session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFromSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Update agent from session data successfully"
+          },
+          "401": {
+            "description": "Unauthorized - invalid secret key"
+          },
+          "424": {
+            "description": "Agent not initialized"
           }
         }
       }
@@ -372,6 +416,25 @@
         }
       }
     },
+    "/config/check_provider": {
+      "post": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "operationId": "check_provider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {}
+      }
+    },
     "/config/custom-providers": {
       "post": {
         "tags": [
@@ -382,7 +445,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateCustomProviderRequest"
+                "$ref": "#/components/schemas/UpdateCustomProviderRequest"
               }
             }
           },
@@ -409,6 +472,84 @@
       }
     },
     "/config/custom-providers/{id}": {
+      "get": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "operationId": "get_custom_provider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Custom provider retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoadedProvider"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Provider not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "operationId": "update_custom_provider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Custom provider updated successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Provider not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "super::routes::config_management"
@@ -440,6 +581,39 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/config/detect-provider": {
+      "post": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "operationId": "detect_provider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DetectProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Provider detected successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectProviderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No matching provider found"
           }
         }
       }
@@ -752,6 +926,45 @@
         }
       }
     },
+    "/config/set_provider": {
+      "post": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "operationId": "set_config_provider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {}
+      }
+    },
+    "/config/slash_commands": {
+      "get": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "operationId": "get_slash_commands",
+        "responses": {
+          "200": {
+            "description": "Slash commands retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlashCommandsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/config/upsert": {
       "post": {
         "tags": [
@@ -808,82 +1021,38 @@
         }
       }
     },
-    "/confirm": {
-      "post": {
+    "/diagnostics/{session_id}": {
+      "get": {
         "tags": [
-          "super::routes::reply"
+          "super::routes::status"
         ],
-        "operationId": "confirm_permission",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PermissionConfirmationRequest"
-              }
+        "operationId": "diagnostics",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Permission action is confirmed",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - invalid secret key"
-          },
-          "500": {
-            "description": "Internal server error"
           }
-        }
-      }
-    },
-    "/context/manage": {
-      "post": {
-        "tags": [
-          "Context Management"
         ],
-        "operationId": "manage_context",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ContextManageRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
-            "description": "Context managed successfully",
+            "description": "Diagnostics zip file",
             "content": {
-              "application/json": {
+              "application/zip": {
                 "schema": {
-                  "$ref": "#/components/schemas/ContextManageResponse"
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }
           },
-          "401": {
-            "description": "Unauthorized - Invalid or missing API key"
-          },
-          "412": {
-            "description": "Precondition failed - Agent not available"
-          },
           "500": {
-            "description": "Internal server error"
+            "description": "Failed to generate diagnostics"
           }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
+        }
       }
     },
     "/handle_openrouter": {
@@ -922,6 +1091,33 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/mcp-ui-proxy": {
+      "get": {
+        "tags": [
+          "super::routes::mcp_ui_proxy"
+        ],
+        "operationId": "mcp_ui_proxy",
+        "parameters": [
+          {
+            "name": "secret",
+            "in": "query",
+            "description": "Secret key for authentication",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MCP UI proxy HTML page"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing secret"
           }
         }
       }
@@ -1157,10 +1353,34 @@
         },
         "responses": {
           "204": {
-            "description": "Recipe saved to file successfully"
+            "description": "Recipe saved to file successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveRecipeResponse"
+                }
+              }
+            }
           },
           "401": {
-            "description": "Unauthorized - Invalid or missing API key"
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error",
@@ -1205,6 +1425,64 @@
         }
       }
     },
+    "/recipes/schedule": {
+      "post": {
+        "tags": [
+          "Recipe Management"
+        ],
+        "operationId": "schedule_recipe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleRecipeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recipe scheduled successfully"
+          },
+          "404": {
+            "description": "Recipe not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/recipes/slash-command": {
+      "post": {
+        "tags": [
+          "Recipe Management"
+        ],
+        "operationId": "set_recipe_slash_command",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSlashCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Slash command set successfully"
+          },
+          "404": {
+            "description": "Recipe not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/reply": {
       "post": {
         "tags": [
@@ -1223,7 +1501,14 @@
         },
         "responses": {
           "200": {
-            "description": "Streaming response initiated"
+            "description": "Streaming response initiated",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageEvent"
+                }
+              }
+            }
           },
           "424": {
             "description": "Agent not initialized"
@@ -1525,10 +1810,9 @@
           {
             "name": "limit",
             "in": "query",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "integer",
-              "format": "int32",
               "minimum": 0
             }
           }
@@ -1770,12 +2054,12 @@
         ]
       }
     },
-    "/sessions/{session_id}/description": {
-      "put": {
+    "/sessions/{session_id}/edit_message": {
+      "post": {
         "tags": [
           "Session Management"
         ],
-        "operationId": "update_session_description",
+        "operationId": "edit_message",
         "parameters": [
           {
             "name": "session_id",
@@ -1791,7 +2075,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateSessionDescriptionRequest"
+                "$ref": "#/components/schemas/EditMessageRequest"
               }
             }
           },
@@ -1799,16 +2083,23 @@
         },
         "responses": {
           "200": {
-            "description": "Session description updated successfully"
+            "description": "Session prepared for editing - frontend should submit the edited message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditMessageResponse"
+                }
+              }
+            }
           },
           "400": {
-            "description": "Bad request - Description too long (max 200 characters)"
+            "description": "Bad request - Invalid message timestamp"
           },
           "401": {
             "description": "Unauthorized - Invalid or missing API key"
           },
           "404": {
-            "description": "Session not found"
+            "description": "Session or message not found"
           },
           "500": {
             "description": "Internal server error"
@@ -1866,6 +2157,57 @@
         ]
       }
     },
+    "/sessions/{session_id}/name": {
+      "put": {
+        "tags": [
+          "Session Management"
+        ],
+        "operationId": "update_session_name",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Unique identifier for the session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSessionNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Session name updated successfully"
+          },
+          "400": {
+            "description": "Bad request - Name too long (max 200 characters)"
+          },
+          "401": {
+            "description": "Unauthorized - Invalid or missing API key"
+          },
+          "404": {
+            "description": "Session not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/sessions/{session_id}/user_recipe_values": {
       "put": {
         "tags": [
@@ -1895,16 +2237,37 @@
         },
         "responses": {
           "200": {
-            "description": "Session user recipe values updated successfully"
+            "description": "Session user recipe values updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateSessionUserRecipeValuesResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized - Invalid or missing API key"
           },
           "404": {
-            "description": "Session not found"
+            "description": "Session not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "500": {
-            "description": "Internal server error"
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1917,7 +2280,7 @@
     "/status": {
       "get": {
         "tags": [
-          "super::routes::health"
+          "super::routes::status"
         ],
         "operationId": "status",
         "responses": {
@@ -1933,36 +2296,200 @@
           }
         }
       }
+    },
+    "/tunnel/start": {
+      "post": {
+        "tags": [
+          "super::routes::tunnel"
+        ],
+        "summary": "Start the tunnel",
+        "operationId": "start_tunnel",
+        "responses": {
+          "200": {
+            "description": "Tunnel started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tunnel/status": {
+      "get": {
+        "tags": [
+          "super::routes::tunnel"
+        ],
+        "summary": "Get tunnel info",
+        "operationId": "get_tunnel_status",
+        "responses": {
+          "200": {
+            "description": "Tunnel info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tunnel/stop": {
+      "post": {
+        "tags": [
+          "super::routes::tunnel"
+        ],
+        "summary": "Stop the tunnel",
+        "operationId": "stop_tunnel",
+        "responses": {
+          "200": {
+            "description": "Tunnel stopped successfully"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
-      "AddSubRecipesRequest": {
+      "ActionRequired": {
         "type": "object",
         "required": [
-          "sub_recipes",
-          "session_id"
+          "data"
         ],
         "properties": {
-          "session_id": {
-            "type": "string"
-          },
-          "sub_recipes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SubRecipe"
-            }
+          "data": {
+            "$ref": "#/components/schemas/ActionRequiredData"
           }
         }
       },
-      "AddSubRecipesResponse": {
+      "ActionRequiredData": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "toolName",
+              "arguments",
+              "actionType"
+            ],
+            "properties": {
+              "actionType": {
+                "type": "string",
+                "enum": [
+                  "toolConfirmation"
+                ]
+              },
+              "arguments": {
+                "$ref": "#/components/schemas/JsonObject"
+              },
+              "id": {
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string",
+                "nullable": true
+              },
+              "toolName": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "message",
+              "requested_schema",
+              "actionType"
+            ],
+            "properties": {
+              "actionType": {
+                "type": "string",
+                "enum": [
+                  "elicitation"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "requested_schema": {}
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "user_data",
+              "actionType"
+            ],
+            "properties": {
+              "actionType": {
+                "type": "string",
+                "enum": [
+                  "elicitationResponse"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "user_data": {}
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "actionType"
+        }
+      },
+      "AddExtensionRequest": {
         "type": "object",
         "required": [
-          "success"
+          "session_id",
+          "config"
         ],
         "properties": {
-          "success": {
-            "type": "boolean"
+          "config": {
+            "$ref": "#/components/schemas/ExtensionConfig"
+          },
+          "session_id": {
+            "type": "string"
           }
         }
       },
@@ -2036,6 +2563,24 @@
           }
         }
       },
+      "CheckProviderRequest": {
+        "type": "object",
+        "required": [
+          "provider"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "CommandType": {
+        "type": "string",
+        "enum": [
+          "Builtin",
+          "Recipe"
+        ]
+      },
       "ConfigKey": {
         "type": "object",
         "description": "Configuration key metadata for provider setup",
@@ -2096,6 +2641,28 @@
           }
         }
       },
+      "ConfirmToolActionRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "sessionId"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "principalType": {
+            "$ref": "#/components/schemas/PrincipalType"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        }
+      },
       "Content": {
         "oneOf": [
           {
@@ -2135,106 +2702,10 @@
           }
         ]
       },
-      "ContextLengthExceeded": {
-        "type": "object",
-        "required": [
-          "msg"
-        ],
-        "properties": {
-          "msg": {
-            "type": "string"
-          }
-        }
-      },
-      "ContextManageRequest": {
-        "type": "object",
-        "description": "Request payload for context management operations",
-        "required": [
-          "messages",
-          "manageAction",
-          "sessionId"
-        ],
-        "properties": {
-          "manageAction": {
-            "type": "string",
-            "description": "Operation to perform: \"truncation\" or \"summarize\""
-          },
-          "messages": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Message"
-            },
-            "description": "Collection of messages to be managed"
-          },
-          "sessionId": {
-            "type": "string",
-            "description": "Optional session ID for session-specific agent"
-          }
-        }
-      },
-      "ContextManageResponse": {
-        "type": "object",
-        "description": "Response from context management operations",
-        "required": [
-          "messages",
-          "tokenCounts"
-        ],
-        "properties": {
-          "messages": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Message"
-            },
-            "description": "Processed messages after the operation"
-          },
-          "tokenCounts": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "description": "Token counts for each processed message"
-          }
-        }
-      },
       "Conversation": {
         "type": "array",
         "items": {
           "$ref": "#/components/schemas/Message"
-        }
-      },
-      "CreateCustomProviderRequest": {
-        "type": "object",
-        "required": [
-          "provider_type",
-          "display_name",
-          "api_url",
-          "api_key",
-          "models"
-        ],
-        "properties": {
-          "api_key": {
-            "type": "string"
-          },
-          "api_url": {
-            "type": "string"
-          },
-          "display_name": {
-            "type": "string"
-          },
-          "models": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "provider_type": {
-            "type": "string"
-          },
-          "supports_streaming": {
-            "type": "boolean",
-            "nullable": true
-          }
         }
       },
       "CreateRecipeRequest": {
@@ -2284,15 +2755,66 @@
           "cron": {
             "type": "string"
           },
-          "execution_mode": {
-            "type": "string",
-            "nullable": true
-          },
           "id": {
             "type": "string"
           },
           "recipe_source": {
             "type": "string"
+          }
+        }
+      },
+      "DeclarativeProviderConfig": {
+        "type": "object",
+        "required": [
+          "name",
+          "engine",
+          "display_name",
+          "api_key_env",
+          "base_url",
+          "models"
+        ],
+        "properties": {
+          "api_key_env": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "engine": {
+            "$ref": "#/components/schemas/ProviderEngine"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "supports_streaming": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "minimum": 0
           }
         }
       },
@@ -2328,6 +2850,68 @@
             "type": "string"
           }
         }
+      },
+      "DetectProviderRequest": {
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "properties": {
+          "api_key": {
+            "type": "string"
+          }
+        }
+      },
+      "DetectProviderResponse": {
+        "type": "object",
+        "required": [
+          "provider_name",
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "provider_name": {
+            "type": "string"
+          }
+        }
+      },
+      "EditMessageRequest": {
+        "type": "object",
+        "required": [
+          "timestamp"
+        ],
+        "properties": {
+          "editType": {
+            "$ref": "#/components/schemas/EditType"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EditMessageResponse": {
+        "type": "object",
+        "required": [
+          "sessionId"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        }
+      },
+      "EditType": {
+        "type": "string",
+        "enum": [
+          "fork",
+          "edit"
+        ]
       },
       "EmbeddedResource": {
         "type": "object",
@@ -2386,37 +2970,11 @@
       "ErrorResponse": {
         "type": "object",
         "required": [
-          "error"
+          "message"
         ],
         "properties": {
-          "error": {
+          "message": {
             "type": "string"
-          }
-        }
-      },
-      "ExtendPromptRequest": {
-        "type": "object",
-        "required": [
-          "extension",
-          "session_id"
-        ],
-        "properties": {
-          "extension": {
-            "type": "string"
-          },
-          "session_id": {
-            "type": "string"
-          }
-        }
-      },
-      "ExtendPromptResponse": {
-        "type": "object",
-        "required": [
-          "success"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean"
           }
         }
       },
@@ -2871,7 +3429,10 @@
             "type": "string"
           },
           "sizes": {
-            "type": "string"
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "src": {
             "type": "string"
@@ -2954,13 +3515,13 @@
       "ListRecipeResponse": {
         "type": "object",
         "required": [
-          "recipe_manifest_responses"
+          "manifests"
         ],
         "properties": {
-          "recipe_manifest_responses": {
+          "manifests": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/RecipeManifestResponse"
+              "$ref": "#/components/schemas/RecipeManifest"
             }
           }
         }
@@ -2979,12 +3540,29 @@
           }
         }
       },
+      "LoadedProvider": {
+        "type": "object",
+        "required": [
+          "config",
+          "is_editable"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/DeclarativeProviderConfig"
+          },
+          "is_editable": {
+            "type": "boolean"
+          }
+        }
+      },
       "Message": {
         "type": "object",
         "description": "A message to or from an LLM",
         "required": [
           "role",
-          "content"
+          "created",
+          "content",
+          "metadata"
         ],
         "properties": {
           "content": {
@@ -3119,6 +3697,27 @@
           {
             "allOf": [
               {
+                "$ref": "#/components/schemas/ActionRequired"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "actionRequired"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
                 "$ref": "#/components/schemas/FrontendToolRequest"
               },
               {
@@ -3182,7 +3781,7 @@
           {
             "allOf": [
               {
-                "$ref": "#/components/schemas/ContextLengthExceeded"
+                "$ref": "#/components/schemas/SystemNotificationContent"
               },
               {
                 "type": "object",
@@ -3193,28 +3792,7 @@
                   "type": {
                     "type": "string",
                     "enum": [
-                      "contextLengthExceeded"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/SummarizationRequested"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "summarizationRequested"
+                      "systemNotification"
                     ]
                   }
                 }
@@ -3227,9 +3805,158 @@
           "propertyName": "type"
         }
       },
+      "MessageEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "message",
+              "token_state",
+              "type"
+            ],
+            "properties": {
+              "message": {
+                "$ref": "#/components/schemas/Message"
+              },
+              "token_state": {
+                "$ref": "#/components/schemas/TokenState"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Message"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "error",
+              "type"
+            ],
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Error"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "token_state",
+              "type"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "token_state": {
+                "$ref": "#/components/schemas/TokenState"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Finish"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "model",
+              "mode",
+              "type"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ModelChange"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "request_id",
+              "message",
+              "type"
+            ],
+            "properties": {
+              "message": {
+                "type": "object"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Notification"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "conversation",
+              "type"
+            ],
+            "properties": {
+              "conversation": {
+                "$ref": "#/components/schemas/Conversation"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "UpdateConversation"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Ping"
+                ]
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
       "MessageMetadata": {
         "type": "object",
         "description": "Metadata for message visibility",
+        "required": [
+          "userVisible",
+          "agentVisible"
+        ],
         "properties": {
           "agentVisible": {
             "type": "boolean",
@@ -3238,6 +3965,44 @@
           "userVisible": {
             "type": "boolean",
             "description": "Whether the message should be visible to the user in the UI"
+          }
+        }
+      },
+      "ModelConfig": {
+        "type": "object",
+        "required": [
+          "model_name",
+          "toolshim"
+        ],
+        "properties": {
+          "context_limit": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "fast_model": {
+            "type": "string",
+            "nullable": true
+          },
+          "max_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "temperature": {
+            "type": "number",
+            "format": "float",
+            "nullable": true
+          },
+          "toolshim": {
+            "type": "boolean"
+          },
+          "toolshim_model": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -3304,28 +4069,6 @@
           }
         }
       },
-      "PermissionConfirmationRequest": {
-        "type": "object",
-        "required": [
-          "id",
-          "action",
-          "session_id"
-        ],
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "principal_type": {
-            "$ref": "#/components/schemas/PrincipalType"
-          },
-          "session_id": {
-            "type": "string"
-          }
-        }
-      },
       "PermissionLevel": {
         "type": "string",
         "description": "Enum representing the possible permission levels for a tool.",
@@ -3347,7 +4090,8 @@
         "required": [
           "name",
           "metadata",
-          "is_configured"
+          "is_configured",
+          "provider_type"
         ],
         "properties": {
           "is_configured": {
@@ -3358,8 +4102,19 @@
           },
           "name": {
             "type": "string"
+          },
+          "provider_type": {
+            "$ref": "#/components/schemas/ProviderType"
           }
         }
+      },
+      "ProviderEngine": {
+        "type": "string",
+        "enum": [
+          "openai",
+          "ollama",
+          "anthropic"
+        ]
       },
       "ProviderMetadata": {
         "type": "object",
@@ -3398,7 +4153,7 @@
             "items": {
               "$ref": "#/components/schemas/ModelInfo"
             },
-            "description": "A list of currently known models with their capabilities\nTODO: eventually query the apis directly"
+            "description": "A list of currently known models with their capabilities"
           },
           "model_doc_link": {
             "type": "string",
@@ -3409,6 +4164,15 @@
             "description": "The unique identifier for this provider"
           }
         }
+      },
+      "ProviderType": {
+        "type": "string",
+        "enum": [
+          "Preferred",
+          "Builtin",
+          "Declarative",
+          "Custom"
+        ]
       },
       "ProvidersResponse": {
         "type": "object",
@@ -3544,13 +4308,6 @@
             ],
             "nullable": true
           },
-          "context": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "nullable": true
-          },
           "description": {
             "type": "string"
           },
@@ -3615,22 +4372,34 @@
           }
         }
       },
-      "RecipeManifestResponse": {
+      "RecipeManifest": {
         "type": "object",
         "required": [
+          "id",
           "recipe",
-          "lastModified",
-          "id"
+          "file_path",
+          "last_modified"
         ],
         "properties": {
+          "file_path": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
-          "lastModified": {
+          "last_modified": {
             "type": "string"
           },
           "recipe": {
             "$ref": "#/components/schemas/Recipe"
+          },
+          "schedule_cron": {
+            "type": "string",
+            "nullable": true
+          },
+          "slash_command": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -3698,6 +4467,21 @@
           }
         }
       },
+      "RemoveExtensionRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "session_id"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        }
+      },
       "ResourceContents": {
         "anyOf": [
           {
@@ -3757,9 +4541,13 @@
       "ResumeAgentRequest": {
         "type": "object",
         "required": [
-          "session_id"
+          "session_id",
+          "load_model_and_extensions"
         ],
         "properties": {
+          "load_model_and_extensions": {
+            "type": "boolean"
+          },
           "session_id": {
             "type": "string"
           }
@@ -3843,6 +4631,17 @@
           }
         }
       },
+      "SaveRecipeResponse": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      },
       "ScanRecipeRequest": {
         "type": "object",
         "required": [
@@ -3865,6 +4664,21 @@
           }
         }
       },
+      "ScheduleRecipeRequest": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "cron_schedule": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
       "ScheduledJob": {
         "type": "object",
         "required": [
@@ -3882,10 +4696,6 @@
           },
           "currently_running": {
             "type": "boolean"
-          },
-          "execution_mode": {
-            "type": "string",
-            "nullable": true
           },
           "id": {
             "type": "string"
@@ -3913,7 +4723,7 @@
         "required": [
           "id",
           "working_dir",
-          "description",
+          "name",
           "created_at",
           "updated_at",
           "extension_data",
@@ -3947,9 +4757,6 @@
             "type": "string",
             "format": "date-time"
           },
-          "description": {
-            "type": "string"
-          },
           "extension_data": {
             "$ref": "#/components/schemas/ExtensionData"
           },
@@ -3965,9 +4772,24 @@
             "type": "integer",
             "minimum": 0
           },
+          "model_config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelConfig"
+              }
+            ],
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
           "output_tokens": {
             "type": "integer",
             "format": "int32",
+            "nullable": true
+          },
+          "provider_name": {
+            "type": "string",
             "nullable": true
           },
           "recipe": {
@@ -3981,6 +4803,9 @@
           "schedule_id": {
             "type": "string",
             "nullable": true
+          },
+          "session_type": {
+            "$ref": "#/components/schemas/SessionType"
           },
           "total_tokens": {
             "type": "integer",
@@ -3998,26 +4823,10 @@
             },
             "nullable": true
           },
-          "working_dir": {
-            "type": "string"
-          }
-        }
-      },
-      "SessionConfigRequest": {
-        "type": "object",
-        "required": [
-          "session_id"
-        ],
-        "properties": {
-          "response": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/Response"
-              }
-            ],
-            "nullable": true
+          "user_set_name": {
+            "type": "boolean"
           },
-          "session_id": {
+          "working_dir": {
             "type": "string"
           }
         }
@@ -4093,13 +4902,11 @@
         "properties": {
           "totalSessions": {
             "type": "integer",
-            "description": "Total number of sessions",
             "minimum": 0
           },
           "totalTokens": {
             "type": "integer",
-            "format": "int64",
-            "description": "Total tokens used across all sessions"
+            "format": "int64"
           }
         }
       },
@@ -4118,13 +4925,55 @@
           }
         }
       },
+      "SessionType": {
+        "type": "string",
+        "enum": [
+          "user",
+          "scheduled",
+          "sub_agent",
+          "hidden",
+          "terminal"
+        ]
+      },
       "SessionsQuery": {
         "type": "object",
+        "required": [
+          "limit"
+        ],
         "properties": {
           "limit": {
             "type": "integer",
-            "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "SetProviderRequest": {
+        "type": "object",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "SetSlashCommandRequest": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slash_command": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -4161,6 +5010,39 @@
           }
         }
       },
+      "SlashCommand": {
+        "type": "object",
+        "required": [
+          "command",
+          "help",
+          "command_type"
+        ],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "command_type": {
+            "$ref": "#/components/schemas/CommandType"
+          },
+          "help": {
+            "type": "string"
+          }
+        }
+      },
+      "SlashCommandsResponse": {
+        "type": "object",
+        "required": [
+          "commands"
+        ],
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SlashCommand"
+            }
+          }
+        }
+      },
       "StartAgentRequest": {
         "type": "object",
         "required": [
@@ -4173,6 +5055,14 @@
                 "$ref": "#/components/schemas/Recipe"
               }
             ],
+            "nullable": true
+          },
+          "recipe_deeplink": {
+            "type": "string",
+            "nullable": true
+          },
+          "recipe_id": {
+            "type": "string",
             "nullable": true
           },
           "working_dir": {
@@ -4237,16 +5127,27 @@
           "propertyName": "type"
         }
       },
-      "SummarizationRequested": {
+      "SystemNotificationContent": {
         "type": "object",
         "required": [
+          "notificationType",
           "msg"
         ],
         "properties": {
           "msg": {
             "type": "string"
+          },
+          "notificationType": {
+            "$ref": "#/components/schemas/SystemNotificationType"
           }
         }
+      },
+      "SystemNotificationType": {
+        "type": "string",
+        "enum": [
+          "thinkingMessage",
+          "inlineMessage"
+        ]
       },
       "TextContent": {
         "type": "object",
@@ -4288,6 +5189,43 @@
           }
         }
       },
+      "TokenState": {
+        "type": "object",
+        "required": [
+          "inputTokens",
+          "outputTokens",
+          "totalTokens",
+          "accumulatedInputTokens",
+          "accumulatedOutputTokens",
+          "accumulatedTotalTokens"
+        ],
+        "properties": {
+          "accumulatedInputTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accumulatedOutputTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accumulatedTotalTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "inputTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "outputTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalTokens": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "Tool": {
         "type": "object",
         "required": [
@@ -4295,6 +5233,10 @@
           "inputSchema"
         ],
         "properties": {
+          "_meta": {
+            "type": "object",
+            "additionalProperties": true
+          },
           "annotations": {
             "anyOf": [
               {
@@ -4429,6 +5371,10 @@
           "id": {
             "type": "string"
           },
+          "thoughtSignature": {
+            "type": "string",
+            "nullable": true
+          },
           "toolCall": {
             "type": "object"
           }
@@ -4446,6 +5392,91 @@
           },
           "toolResult": {
             "type": "object"
+          }
+        }
+      },
+      "TunnelInfo": {
+        "type": "object",
+        "required": [
+          "state",
+          "url",
+          "hostname",
+          "secret"
+        ],
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TunnelState"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "TunnelState": {
+        "type": "string",
+        "enum": [
+          "idle",
+          "starting",
+          "running",
+          "error",
+          "disabled"
+        ]
+      },
+      "UpdateCustomProviderRequest": {
+        "type": "object",
+        "required": [
+          "engine",
+          "display_name",
+          "api_url",
+          "api_key",
+          "models"
+        ],
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "api_url": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "engine": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supports_streaming": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "UpdateFromSessionRequest": {
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string"
           }
         }
       },
@@ -4490,15 +5521,15 @@
           }
         }
       },
-      "UpdateSessionDescriptionRequest": {
+      "UpdateSessionNameRequest": {
         "type": "object",
         "required": [
-          "description"
+          "name"
         ],
         "properties": {
-          "description": {
+          "name": {
             "type": "string",
-            "description": "Updated description (name) for the session (max 200 characters)"
+            "description": "Updated name for the session (max 200 characters)"
           }
         }
       },
@@ -4514,6 +5545,17 @@
             "additionalProperties": {
               "type": "string"
             }
+          }
+        }
+      },
+      "UpdateSessionUserRecipeValuesResponse": {
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "properties": {
+          "recipe": {
+            "$ref": "#/components/schemas/Recipe"
           }
         }
       },

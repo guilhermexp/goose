@@ -9,8 +9,7 @@ import {
   Trash2,
   Download,
   Upload,
-  LayoutGrid,
-  List,
+  ExternalLink,
 } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -29,7 +28,7 @@ import {
   importSession,
   listSessions,
   Session,
-  updateSessionDescription,
+  updateSessionName,
 } from '../../api';
 
 interface EditSessionModalProps {
@@ -47,7 +46,7 @@ const EditSessionModal = React.memo<EditSessionModalProps>(
 
     useEffect(() => {
       if (session && isOpen) {
-        setDescription(session.description || session.id);
+        setDescription(session.name);
       } else if (!isOpen) {
         // Reset state when modal closes
         setDescription('');
@@ -59,16 +58,16 @@ const EditSessionModal = React.memo<EditSessionModalProps>(
       if (!session || disabled) return;
 
       const trimmedDescription = description.trim();
-      if (trimmedDescription === session.description) {
+      if (trimmedDescription === session.name) {
         onClose();
         return;
       }
 
       setIsUpdating(true);
       try {
-        await updateSessionDescription({
+        await updateSessionName({
           path: { session_id: session.id },
-          body: { description: trimmedDescription },
+          body: { name: trimmedDescription },
           throwOnError: true,
         });
         await onSave(session.id, trimmedDescription);
@@ -82,7 +81,7 @@ const EditSessionModal = React.memo<EditSessionModalProps>(
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         console.error('Failed to update session description:', errorMessage);
         toast.error(`Failed to update session description: ${errorMessage}`);
-        setDescription(session.description || session.id);
+        setDescription(session.name);
       } finally {
         setIsUpdating(false);
       }
@@ -208,9 +207,6 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
     const [searchTerm, setSearchTerm] = useState('');
     const [caseSensitive, setCaseSensitive] = useState(false);
     const debouncedSearchTerm = useDebounce(searchTerm, 300); // 300ms debounce
-
-    // View mode state (grid or list)
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -338,7 +334,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
       startTransition(() => {
         const searchTerm = caseSensitive ? debouncedSearchTerm : debouncedSearchTerm.toLowerCase();
         const filtered = sessions.filter((session) => {
-          const description = session.description || session.id;
+          const description = session.name;
           const workingDir = session.working_dir;
           const sessionId = session.id;
 
@@ -402,7 +398,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
     const handleModalSave = useCallback(async (sessionId: string, newDescription: string) => {
       // Update state immediately for optimistic UI
       setSessions((prevSessions) =>
-        prevSessions.map((s) => (s.id === sessionId ? { ...s, description: newDescription } : s))
+        prevSessions.map((s) => (s.id === sessionId ? { ...s, name: newDescription } : s))
       );
     }, []);
 
@@ -421,7 +417,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
 
       setShowDeleteConfirmation(false);
       const sessionToDeleteId = sessionToDelete.id;
-      const sessionName = sessionToDelete.description || sessionToDelete.id;
+      const sessionName = sessionToDelete.name;
       setSessionToDelete(null);
 
       try {
@@ -456,7 +452,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${session.description || session.id}.json`;
+      a.download = `${session.name}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -493,118 +489,29 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
       [loadSessions]
     );
 
-    // List item component for list view
-    const SessionListItem = React.memo(function SessionListItem({
-      session,
-      onEditClick,
-      onDeleteClick,
-      onExportClick,
-    }: {
-      session: Session;
-      onEditClick: (session: Session) => void;
-      onDeleteClick: (session: Session) => void;
-      onExportClick: (session: Session, e: React.MouseEvent) => void;
-    }) {
-      const handleEditClick = useCallback(
-        (e: React.MouseEvent) => {
-          e.stopPropagation();
-          onEditClick(session);
-        },
-        [onEditClick, session]
+    const handleOpenInNewWindow = useCallback((session: Session, e: React.MouseEvent) => {
+      e.stopPropagation();
+      window.electron.createChatWindow(
+        undefined,
+        session.working_dir,
+        undefined,
+        session.id,
+        'pair'
       );
-
-      const handleDeleteClick = useCallback(
-        (e: React.MouseEvent) => {
-          e.stopPropagation();
-          onDeleteClick(session);
-        },
-        [onDeleteClick, session]
-      );
-
-      const handleCardClick = useCallback(() => {
-        onSelectSession(session.id);
-      }, [session.id]);
-
-      const handleExportClick = useCallback(
-        (e: React.MouseEvent) => {
-          onExportClick(session, e);
-        },
-        [onExportClick, session]
-      );
-
-      return (
-        <div
-          onClick={handleCardClick}
-          className="session-item py-3 px-4 border-b border-border-subtle hover:bg-background-muted cursor-pointer transition-all duration-150 flex items-center justify-between group"
-          ref={(el) => setSessionRefs(session.id, el)}
-        >
-          <div className="flex-1 min-w-0 pr-4">
-            <div className="flex items-center gap-4 mb-1">
-              <h3 className="text-base font-medium truncate flex-1">
-                {session.description || session.id}
-              </h3>
-              <div className="flex items-center text-text-muted text-xs font-mono shrink-0">
-                <Calendar className="w-3 h-3 mr-1" />
-                <span>{formatMessageTimestamp(Date.parse(session.updated_at) / 1000)}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-4 text-xs text-text-muted">
-              <div className="flex items-center truncate flex-1">
-                <Folder className="w-3 h-3 mr-1 shrink-0" />
-                <span className="truncate font-mono">{session.working_dir}</span>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <div className="flex items-center">
-                  <MessageSquareText className="w-3 h-3 mr-1" />
-                  <span className="font-mono">{session.message_count}</span>
-                </div>
-                {session.total_tokens !== null && (
-                  <div className="flex items-center">
-                    <Target className="w-3 h-3 mr-1" />
-                    <span className="font-mono">{(session.total_tokens || 0).toLocaleString()}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <button
-              onClick={handleEditClick}
-              className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-              title="Edit session name"
-            >
-              <Edit2 className="w-3 h-3 text-textSubtle hover:text-textStandard" />
-            </button>
-            <button
-              onClick={handleDeleteClick}
-              className="p-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-              title="Delete session"
-            >
-              <Trash2 className="w-3 h-3 text-red-500 hover:text-red-600" />
-            </button>
-            <button
-              onClick={handleExportClick}
-              className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-              title="Export session"
-            >
-              <Download className="w-3 h-3 text-textSubtle hover:text-textStandard" />
-            </button>
-          </div>
-        </div>
-      );
-    });
+    }, []);
 
     const SessionItem = React.memo(function SessionItem({
       session,
       onEditClick,
       onDeleteClick,
       onExportClick,
+      onOpenInNewWindow,
     }: {
       session: Session;
       onEditClick: (session: Session) => void;
       onDeleteClick: (session: Session) => void;
       onExportClick: (session: Session, e: React.MouseEvent) => void;
+      onOpenInNewWindow: (session: Session, e: React.MouseEvent) => void;
     }) {
       const handleEditClick = useCallback(
         (e: React.MouseEvent) => {
@@ -631,6 +538,13 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
           onExportClick(session, e);
         },
         [onExportClick, session]
+      );
+
+      const handleOpenInNewWindowClick = useCallback(
+        (e: React.MouseEvent) => {
+          onOpenInNewWindow(session, e);
+        },
+        [onOpenInNewWindow, session]
       );
 
       return (
@@ -639,35 +553,41 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
           className="session-item h-full py-3 px-4 hover:shadow-default cursor-pointer transition-all duration-150 flex flex-col justify-between relative group"
           ref={(el) => setSessionRefs(session.id, el)}
         >
-          <div className="absolute top-3 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={handleEditClick}
-              className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
-              title="Edit session name"
-            >
-              <Edit2 className="w-3 h-3 text-textSubtle hover:text-textStandard" />
-            </button>
-            <button
-              onClick={handleDeleteClick}
-              className="p-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
-              title="Delete session"
-            >
-              <Trash2 className="w-3 h-3 text-red-500 hover:text-red-600" />
-            </button>
-            <button
-              onClick={handleExportClick}
-              className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
-              title="Export session"
-            >
-              <Download className="w-3 h-3 text-textSubtle hover:text-textStandard" />
-            </button>
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <h3 className="text-base break-words line-clamp-2 flex-1 min-w-0">{session.name}</h3>
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+              <button
+                onClick={handleOpenInNewWindowClick}
+                className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                title="Open in new window"
+              >
+                <ExternalLink className="w-3 h-3 text-textSubtle hover:text-textStandard" />
+              </button>
+              <button
+                onClick={handleEditClick}
+                className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                title="Edit session name"
+              >
+                <Edit2 className="w-3 h-3 text-textSubtle hover:text-textStandard" />
+              </button>
+              <button
+                onClick={handleDeleteClick}
+                className="p-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
+                title="Delete session"
+              >
+                <Trash2 className="w-3 h-3 text-red-500 hover:text-red-600" />
+              </button>
+              <button
+                onClick={handleExportClick}
+                className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                title="Export session"
+              >
+                <Download className="w-3 h-3 text-textSubtle hover:text-textStandard" />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1">
-            <h3 className="text-base mb-1 pr-16 break-words">
-              {session.description || session.id}
-            </h3>
-
             <div className="flex items-center text-text-muted text-xs mb-1">
               <Calendar className="w-3 h-3 mr-1 flex-shrink-0" />
               <span>{formatMessageTimestamp(Date.parse(session.updated_at) / 1000)}</span>
@@ -696,7 +616,6 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
       );
     });
 
-    // Render skeleton loader for session items with variations
     const SessionSkeleton = React.memo(({ variant = 0 }: { variant?: number }) => {
       const titleWidths = ['w-3/4', 'w-2/3', 'w-4/5', 'w-1/2'];
       const pathWidths = ['w-32', 'w-28', 'w-36', 'w-24'];
@@ -775,31 +694,18 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
               <div className="sticky top-0 z-10 bg-background-default/95 backdrop-blur-sm">
                 <h2 className="text-text-muted">{group.label}</h2>
               </div>
-              {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                  {group.sessions.map((session) => (
-                    <SessionItem
-                      key={session.id}
-                      session={session}
-                      onEditClick={handleEditSession}
-                      onDeleteClick={handleDeleteSession}
-                      onExportClick={handleExportSession}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="border border-border-subtle rounded-lg overflow-hidden">
-                  {group.sessions.map((session) => (
-                    <SessionListItem
-                      key={session.id}
-                      session={session}
-                      onEditClick={handleEditSession}
-                      onDeleteClick={handleDeleteSession}
-                      onExportClick={handleExportSession}
-                    />
-                  ))}
-                </div>
-              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                {group.sessions.map((session) => (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    onEditClick={handleEditSession}
+                    onDeleteClick={handleDeleteSession}
+                    onExportClick={handleExportSession}
+                    onOpenInNewWindow={handleOpenInNewWindow}
+                  />
+                ))}
+              </div>
             </div>
           ))}
 
@@ -823,45 +729,18 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
               <div className="flex flex-col page-transition">
                 <div className="flex justify-between items-center mb-1">
                   <h1 className="text-4xl font-light">Chat history</h1>
-                  <div className="flex items-center gap-2">
-                    {/* View mode toggle */}
-                    <div className="flex items-center border border-border-subtle rounded-md p-1">
-                      <button
-                        onClick={() => setViewMode('grid')}
-                        className={`p-1.5 rounded transition-colors ${
-                          viewMode === 'grid'
-                            ? 'bg-background-accent/10 text-text-accent'
-                            : 'text-text-muted hover:text-text-standard hover:bg-background-muted'
-                        }`}
-                        title="Grid view"
-                      >
-                        <LayoutGrid className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setViewMode('list')}
-                        className={`p-1.5 rounded transition-colors ${
-                          viewMode === 'list'
-                            ? 'bg-background-accent/10 text-text-accent'
-                            : 'text-text-muted hover:text-text-standard hover:bg-background-muted'
-                        }`}
-                        title="List view"
-                      >
-                        <List className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <Button
-                      onClick={handleImportClick}
-                      variant="outline"
-                      size="sm"
-                      className="flex items-center gap-2"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Import Session
-                    </Button>
-                  </div>
+                  <Button
+                    onClick={handleImportClick}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Import Session
+                  </Button>
                 </div>
                 <p className="text-sm text-text-muted mb-4">
-                  View and search your past conversations with Goose.
+                  View and search your past conversations with Goose. ⌘F/Ctrl+F to search.
                 </p>
               </div>
             </div>
@@ -874,6 +753,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
                     onNavigate={handleSearchNavigation}
                     searchResults={searchResults}
                     className="relative"
+                    placeholder="Search history..."
                   >
                     {/* Skeleton layer - always rendered but conditionally visible */}
                     <div
@@ -954,7 +834,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(
         <ConfirmationModal
           isOpen={showDeleteConfirmation}
           title="Delete Session"
-          message={`Are you sure you want to delete the session "${sessionToDelete?.description || sessionToDelete?.id}"? This action cannot be undone.`}
+          message={`Are you sure you want to delete the session "${sessionToDelete?.name}"? This action cannot be undone.`}
           confirmLabel="Delete Session"
           cancelLabel="Cancel"
           confirmVariant="destructive"
