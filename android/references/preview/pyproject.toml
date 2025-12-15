@@ -1,0 +1,12 @@
+[project]
+name = "android-preview"
+version = "0.1.0"
+description = "Android Preview Server for Goose"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+]
+
+[tool.uv]
+dev-dependencies = []

@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "android-mcp": {
+      "command": "/Users/guilhermevarela/.local/bin/uv",
+      "args": [
+        "--directory",
+        "/Users/guilhermevarela/Public/goose-fork/android/mcp-server",
+        "run",
+        "main.py",
+        "--emulator"
+      ]
+    },
+    "pppoker-autoglm": {
+      "command": "/Users/guilhermevarela/Public/goose-fork/android/Open-AutoGLM/venv/bin/python",
+      "args": [
+        "/Users/guilhermevarela/Public/goose-fork/android/Open-AutoGLM/mcp_server/pppoker_mcp.py"
+      ],
+      "env": {
+        "AUTOGLM_API_KEY": "9bc888ce0ea74045b590bd1db733474d.DbvmYIblb0wZOXHo"
+      }
+    }
+  }
+}

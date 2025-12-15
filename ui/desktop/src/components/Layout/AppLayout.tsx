@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import AppSidebar from '../GooseSidebar/AppSidebar';
 import { View, ViewOptions } from '../../utils/navigationUtils';
-import { AppWindowMac, AppWindow } from 'lucide-react';
+import { AppWindowMac, AppWindow, Smartphone } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Sidebar, SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '../ui/sidebar';
 
@@ -11,6 +11,12 @@ const AppLayoutContent: React.FC = () => {
   const location = useLocation();
   const safeIsMacOS = (window?.electron?.platform || 'darwin') === 'darwin';
   const { isMobile, openMobile } = useSidebar();
+  const [isDockingActive, setIsDockingActive] = useState(false);
+
+  // Check docking state on mount
+  useEffect(() => {
+    window.electron.isWindowDockingActive().then(setIsDockingActive);
+  }, []);
 
   // Calculate padding based on sidebar state and macOS
   const headerPadding = safeIsMacOS ? 'pl-21' : 'pl-4';
@@ -87,6 +93,26 @@ const AppLayoutContent: React.FC = () => {
             title="Start a new session in a new window"
           >
             {safeIsMacOS ? <AppWindowMac className="w-4 h-4" /> : <AppWindow className="w-4 h-4" />}
+          </Button>
+          <Button
+            onClick={async () => {
+              if (isDockingActive) {
+                await window.electron.disableWindowDocking();
+                setIsDockingActive(false);
+              } else {
+                const success = await window.electron.enableWindowDocking();
+                setIsDockingActive(success);
+                if (!success) {
+                  console.warn('Failed to enable docking - emulator window not found');
+                }
+              }
+            }}
+            className={`no-drag hover:!bg-background-medium ${isDockingActive ? 'bg-background-medium' : ''}`}
+            variant="ghost"
+            size="xs"
+            title={isDockingActive ? "Desativar docking do emulador" : "Ativar docking do emulador"}
+          >
+            <Smartphone className="w-4 h-4" />
           </Button>
         </div>
       )}

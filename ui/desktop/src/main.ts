@@ -35,6 +35,14 @@ import {
   saveSettings,
   updateEnvironmentVariables,
 } from './utils/settings';
+import {
+  initWindowDocking,
+  enableDocking,
+  disableDocking,
+  isDockingActive,
+  listAllWindows,
+  reattachEmulator,
+} from './utils/windowDocking';
 import * as crypto from 'crypto';
 // import electron from "electron";
 import * as yaml from 'yaml';
@@ -1824,6 +1832,19 @@ async function appMain() {
     app.dock?.hide();
   }
 
+  // Initialize window docking module (non-blocking)
+  initWindowDocking()
+    .then((success) => {
+      if (success) {
+        log.info('[Main] Window docking module initialized');
+      } else {
+        log.warn('[Main] Window docking module failed to initialize (optional feature)');
+      }
+    })
+    .catch((err) => {
+      log.error('[Main] Window docking module error:', err);
+    });
+
   const { dirPath } = parseArgs();
 
   await createNewWindow(app, dirPath);
@@ -1839,6 +1860,20 @@ async function appMain() {
       }
     }
   }, 2000); // 2 second delay after window is shown
+
+  // Auto-enable window docking after emulator has time to start
+  setTimeout(() => {
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length > 0) {
+      const mainWindow = windows[0];
+      const success = enableDocking(mainWindow);
+      if (success) {
+        log.info('[Main] Window docking auto-enabled');
+      } else {
+        log.info('[Main] Window docking not auto-enabled (emulator not found)');
+      }
+    }
+  }, 5000); // 5 second delay to allow emulator to start
 
   // Setup macOS dock menu
   if (process.platform === 'darwin') {
@@ -2279,6 +2314,39 @@ async function appMain() {
   ipcMain.on('restart-app', () => {
     app.relaunch();
     app.exit(0);
+  });
+
+  // Window docking IPC handlers
+  ipcMain.handle('enable-window-docking', async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window) {
+      const success = enableDocking(window);
+      log.info(`[Main] Window docking ${success ? 'enabled' : 'failed'} for window ${window.id}`);
+      return success;
+    }
+    return false;
+  });
+
+  ipcMain.handle('disable-window-docking', async () => {
+    disableDocking();
+    log.info('[Main] Window docking disabled');
+    return true;
+  });
+
+  ipcMain.handle('is-window-docking-active', async () => {
+    return isDockingActive();
+  });
+
+  ipcMain.handle('list-all-windows', async () => {
+    return listAllWindows();
+  });
+
+  ipcMain.handle('reattach-emulator', async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window) {
+      return reattachEmulator(window);
+    }
+    return false;
   });
 
   // Handler for getting app version

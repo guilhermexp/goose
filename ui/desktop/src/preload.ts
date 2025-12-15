@@ -117,6 +117,12 @@ type ElectronAPI = {
   hasAcceptedRecipeBefore: (recipe: Recipe) => Promise<boolean>;
   recordRecipeHash: (recipe: Recipe) => Promise<boolean>;
   openDirectoryInExplorer: (directoryPath: string) => Promise<boolean>;
+  // Window docking functions
+  enableWindowDocking: () => Promise<boolean>;
+  disableWindowDocking: () => Promise<boolean>;
+  isWindowDockingActive: () => Promise<boolean>;
+  listAllWindows: () => Promise<string[]>;
+  reattachEmulator: () => Promise<boolean>;
 };
 
 type AppConfigAPI = {
@@ -251,6 +257,12 @@ const electronAPI: ElectronAPI = {
   recordRecipeHash: (recipe: Recipe) => ipcRenderer.invoke('record-recipe-hash', recipe),
   openDirectoryInExplorer: (directoryPath: string) =>
     ipcRenderer.invoke('open-directory-in-explorer', directoryPath),
+  // Window docking
+  enableWindowDocking: () => ipcRenderer.invoke('enable-window-docking'),
+  disableWindowDocking: () => ipcRenderer.invoke('disable-window-docking'),
+  isWindowDockingActive: () => ipcRenderer.invoke('is-window-docking-active'),
+  listAllWindows: () => ipcRenderer.invoke('list-all-windows'),
+  reattachEmulator: () => ipcRenderer.invoke('reattach-emulator'),
 };
 
 const appConfigAPI: AppConfigAPI = {
